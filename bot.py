@@ -1,93 +1,61 @@
 import os
+import asyncio
 import subprocess
-from flask import Flask, render_template, request
-import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import config
+from flask import Flask, request, jsonify
+from config import API_ID, API_HASH, BOT_TOKEN, FLASK_PORT
+from datetime import datetime
 
-
-app = Flask(__name__)
-
-# Initialize the bot
+# Initialize the Telegram client
 bot = Client(
-    "crunchyroll_bot",
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN
+    "sync_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
 )
 
-# Helper function to calculate and send progress
-def progress(current, total, message: Message, action: str):
-    percent = (current / total) * 100
-    message_text = f"{action}... {percent:.1f}% completed"
-    message.edit(message_text)
+# Initialize Flask
+app = Flask(__name__)
 
-# Command handler for /start
-@bot.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("Hello! Use /rip <Crunchyroll URL> <username> <password> to download a video in 240p.")
-
-# Command handler for /rip
-@bot.on_message(filters.command("rip"))
-async def rip_video(client, message):
-    args = message.command[1:]
-    
-    if len(args) < 3:
-        await message.reply("Please provide the Crunchyroll URL, username, and password!")
-        return
-
-    url, username, password = args[0], args[1], args[2]
-    await handle_download(message, url, username, password)
-
-# Function to handle video downloading and uploading
-async def handle_download(message: Message, url: str, username: str, password: str):
-    await message.reply("Preparing to download video in 240p...")
-
-    output_file = "output_240p.mp4"
-    command = [
-        "N_m3u8DL-RE", url, 
-        "--save-dir", ".", 
-        "--save-name", "output_240p",
-        "--auto-select",
-        "--user", username,
-        "--password", password,
-        "--max-quality", "240p"  # Setting to download in 240p
+# Function to synchronize video and audio using FFmpeg
+async def sync_video_audio(input_video, output_video):
+    cmd = [
+        "ffmpeg",
+        "-i", input_video,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-strict", "experimental",
+        "-map", "0:v:0",
+        "-map", "0:a:0",
+        "-async", "1",  # Ensure audio sync
+        output_video
     ]
-    
-    try:
-        # Run the command and track progress
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                break
+    process = await asyncio.create_subprocess_exec(*cmd)
+    await process.communicate()
 
-            # Parse progress from the tool output
-            line = line.decode("utf-8").strip()
-            if "Progress" in line:
-                progress_info = line.split()
-                progress_percent = progress_info[1].strip("%")
-                await message.edit(f"Download Progress: {progress_percent}%")
+@bot.on_message(filters.command("sync") & filters.video)
+async def sync_handler(bot, message: Message):
+    # Download the video file
+    video_path = await message.download()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = f"synced_{timestamp}_{os.path.basename(video_path)}"
 
-        process.wait()
-        
-        if os.path.exists(output_file):
-            await message.reply("Uploading video...")
-            video_message = await message.reply_video(
-                output_file,
-                progress=progress,
-                progress_args=("Uploading", message)
-            )
-            os.remove(output_file)
-        else:
-            await message.reply("Video download failed, please try again.")
-        
-    except subprocess.CalledProcessError as e:
-        await message.reply(f"Failed to download the video. Error: {str(e)}")
-    except Exception as e:
-        await message.reply(f"An unexpected error occurred: {str(e)}")
+    # Notify user that the synchronization process has started
+    await message.reply_text("🔄 Synchronizing video and audio... Please wait.")
+
+    # Run the synchronization function
+    await sync_video_audio(video_path, output_path)
+
+    # Send the synchronized video back to the user
+    await message.reply_video(output_path)
+
+    # Cleanup: Remove the downloaded and processed files
+    os.remove(video_path)
+    os.remove(output_path)
+
+    # Notify user that the synchronization is complete
+    await message.reply_text("✅ Synchronization complete! Here is your video.")
 
 if __name__ == "__main__":
     bot.run()
