@@ -1,8 +1,13 @@
 import os
 import subprocess
+from flask import Flask, render_template, request
+import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import config
+
+
+app = Flask(__name__)
 
 # Initialize the bot
 bot = Client(
@@ -84,5 +89,5 @@ async def handle_download(message: Message, url: str, username: str, password: s
     except Exception as e:
         await message.reply(f"An unexpected error occurred: {str(e)}")
 
-# Run the bot
-bot.run()
+if __name__ == "__main__":
+    bot.run()
