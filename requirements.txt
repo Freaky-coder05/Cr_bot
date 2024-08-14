@@ -1,4 +1,7 @@
 flask==2.3.2
 pyrogram==2.0.106
 asyncio==3.4.3
-TgCrypto 
+opencv-python==4.5.3.56
+deepspeech==0.9.3
+numpy==1.21.2
+Tgcrypto 
