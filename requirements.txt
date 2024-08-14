@@ -1,4 +1,4 @@
+flask==2.3.2
 pyrogram==2.0.106
-Tgcrypto
-flask
-requests
+asyncio==3.4.3
+TgCrypto 
