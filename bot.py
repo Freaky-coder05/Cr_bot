@@ -4,7 +4,7 @@ import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from flask import Flask, request, jsonify
-from config import API_ID, API_HASH, BOT_TOKEN, FLASK_PORT
+from config import API_ID, API_HASH, BOT_TOKEN
 from datetime import datetime
 
 # Initialize the Telegram client
