@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from transformers import pipeline
-from config import API_ID, API_HASH, BOT_TOKEN, SAVE_DIR, FFMPEG_PATH, MODEL_NAME, FLASK_HOST, FLASK_PORT
+from config import API_ID, API_HASH, BOT_TOKEN, SAVE_DIR, FFMPEG_PATH, MODEL_NAME
 
 # Initialize Flask app
 app_flask = Flask(__name__)
