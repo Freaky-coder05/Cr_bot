@@ -58,6 +58,12 @@ async def start(client: Client, message: Message):
     )
     await message.reply(welcome_text)
 
+# Function to display the download progress
+async def progress(current, total, message, action):
+    progress_percentage = int(current * 100 / total)
+    progress_message = f"{action}: {progress_percentage}%"
+    await message.edit_text(progress_message)
+
 # Handler to download and synchronize video and audio
 @app.on_message(filters.command("sync") & filters.reply)
 async def sync_video_audio(client: Client, message: Message):
@@ -67,38 +73,49 @@ async def sync_video_audio(client: Client, message: Message):
         await message.reply("Please reply to a video file or document containing a video.")
         return
 
-    # Download the video
-    video_file = await reply_message.download(DOWNLOAD_PATH)
+    status_message = await message.reply("Downloading video...")
 
-    # Assume the user sends the audio file in a subsequent message
-    await message.reply("Now, please send the audio file.")
+    # Download the video with progress
+    video_file = await reply_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading video"))
+
+    # Update status after download
+    await status_message.edit_text("Video downloaded. Now, please send the audio file.")
 
     # Wait for the audio file to be sent
     @app.on_message(filters.document | filters.audio)
     async def handle_audio(client: Client, audio_message: Message):
-        audio_file = await audio_message.download(DOWNLOAD_PATH)
-        
+        status_message = await audio_message.reply("Downloading audio...")
+
+        # Download the audio with progress
+        audio_file = await audio_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading audio"))
+
         # Generate the output file name
         output_file = os.path.join(DOWNLOAD_PATH, f"synced_{os.path.basename(video_file)}")
 
         try:
             # Run FFmpeg to sync video and audio
+            await status_message.edit_text("Synchronizing video and audio...")
             await run_ffmpeg(video_file, audio_file, output_file)
-            await message.reply(f"Video and audio synchronized successfully! Uploading...")
 
-            # Send the synchronized file
-            await client.send_document(message.chat.id, output_file)
+            await status_message.edit_text("Uploading synchronized video...")
+
+            # Send the synchronized file with progress
+            await client.send_document(
+                message.chat.id, 
+                output_file, 
+                caption="Here is your synchronized video.", 
+                progress=progress, 
+                progress_args=(status_message, "Uploading synchronized video")
+            )
 
         except Exception as e:
-            await message.reply(f"Error: {e}")
+            await status_message.edit_text(f"Error: {e}")
 
         finally:
             # Cleanup downloaded and output files
             os.remove(video_file)
             os.remove(audio_file)
             os.remove(output_file)
-
-    await client.listen(filters.document | filters.audio)
 
 # Run the bot
 if __name__ == "__main__":
