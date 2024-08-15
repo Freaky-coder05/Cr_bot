@@ -29,6 +29,7 @@ async def run_ffmpeg(input_video, input_audio, output_file):
         "-map", "0:v:0",  # Map video from the first input
         "-map", "1:a:0",  # Map audio from the second input
         "-shortest",  # End output as soon as one of the inputs ends
+        "-async", "1",  # Synchronize audio with video
         output_file
     ]
 
