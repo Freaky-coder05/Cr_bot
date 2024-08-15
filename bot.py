@@ -62,7 +62,13 @@ async def start(client: Client, message: Message):
 async def progress(current, total, message, action):
     progress_percentage = int(current * 100 / total)
     progress_message = f"{action}: {progress_percentage}%"
-    await message.edit_text(progress_message)
+    
+    # Fetch the current message text
+    current_text = message.text
+
+    # Only edit if the message content has changed
+    if current_text != progress_message:
+        await message.edit_text(progress_message)
 
 # Handler to download and synchronize video and audio
 @app.on_message(filters.command("sync") & filters.reply)
