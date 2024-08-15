@@ -1,6 +1,4 @@
 pyrogram==2.0.106
-TgCrypto 
+tgcrypto==1.2.3
 flask==2.2.5
-transformers==4.30.2
-torch==2.0.1  # Required by transformers for AI model inference
 ffmpeg-python==0.2.0
