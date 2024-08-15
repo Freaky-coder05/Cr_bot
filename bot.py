@@ -97,9 +97,9 @@ async def sync_video_audio(client: Client, message: Message):
             await status_message.edit_text("Synchronizing video and audio...")
             await run_ffmpeg(video_file, audio_file, output_file)
 
-            await status_message.edit_text("Uploading synchronized video...")
-
             # Send the synchronized file with progress
+            status_message = await status_message.edit_text("Uploading synchronized video...")
+
             await client.send_document(
                 message.chat.id, 
                 output_file, 
