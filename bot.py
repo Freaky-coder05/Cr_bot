@@ -18,6 +18,11 @@ DOWNLOAD_PATH = "downloads/"
 
 # Function to run FFmpeg command
 async def run_ffmpeg(input_video, input_audio, output_file):
+    if not os.path.exists(input_video):
+        raise FileNotFoundError(f"Input video file does not exist: {input_video}")
+    if not os.path.exists(input_audio):
+        raise FileNotFoundError(f"Input audio file does not exist: {input_audio}")
+
     cmd = [
         "ffmpeg",
         "-y",  # Overwrite output file if it exists
@@ -85,6 +90,11 @@ async def sync_video_audio(client: Client, message: Message):
     # Download the video with progress
     video_file = await reply_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading video"))
 
+    # Verify video file existence
+    if not os.path.exists(video_file):
+        await status_message.edit_text(f"Video file does not exist: {video_file}")
+        return
+
     # Update status after download
     await status_message.edit_text("Video downloaded. Now, please send the audio file.")
 
@@ -96,6 +106,11 @@ async def sync_video_audio(client: Client, message: Message):
         # Download the audio with progress
         audio_file = await audio_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading audio"))
 
+        # Verify audio file existence
+        if not os.path.exists(audio_file):
+            await status_message.edit_text(f"Audio file does not exist: {audio_file}")
+            return
+
         # Generate the output file name
         output_file = os.path.join(DOWNLOAD_PATH, f"synced_{os.path.basename(video_file)}")
 
@@ -103,6 +118,11 @@ async def sync_video_audio(client: Client, message: Message):
             # Run FFmpeg to sync video and audio
             await status_message.edit_text("Synchronizing video and audio...")
             await run_ffmpeg(video_file, audio_file, output_file)
+
+            # Verify output file existence
+            if not os.path.exists(output_file):
+                await status_message.edit_text(f"Output file was not created: {output_file}")
+                return
 
             # Send the synchronized file with progress
             status_message = await status_message.edit_text("Uploading synchronized video...")
@@ -120,9 +140,12 @@ async def sync_video_audio(client: Client, message: Message):
 
         finally:
             # Cleanup downloaded and output files
-            os.remove(video_file)
-            os.remove(audio_file)
-            os.remove(output_file)
+            if os.path.exists(video_file):
+                os.remove(video_file)
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+            if os.path.exists(output_file):
+                os.remove(output_file)
 
 # Run the bot
 if __name__ == "__main__":
