@@ -44,6 +44,20 @@ async def run_ffmpeg(input_video, input_audio, output_file):
 
     return output_file
 
+# Handler to start the bot and send a welcome message
+@app.on_message(filters.command("start"))
+async def start(client: Client, message: Message):
+    welcome_text = (
+        "Hello! 👋\n\n"
+        "I am a Video-Audio Synchronizer Bot. You can use me to synchronize audio and video files.\n\n"
+        "Here's how to use me:\n"
+        "1. Send a video file or reply to a video message with the `/sync` command.\n"
+        "2. I'll ask you to send the corresponding audio file.\n"
+        "3. I'll sync them together and send you the result!\n\n"
+        "Let's get started!"
+    )
+    await message.reply(welcome_text)
+
 # Handler to download and synchronize video and audio
 @app.on_message(filters.command("sync") & filters.reply)
 async def sync_video_audio(client: Client, message: Message):
