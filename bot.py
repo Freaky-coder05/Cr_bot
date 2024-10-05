@@ -17,15 +17,29 @@ async def trim_video(input_file, start_time, end_time, output_file):
     subprocess.call(cmd, shell=True)
 
 async def merge_videos(input_file1, input_file2, output_file):
-    # Use FFmpeg to scale both videos to the same resolution (e.g., 854x480)
+    # FFmpeg command to scale both videos to the same resolution (854x480) and merge
     cmd = (
         f"ffmpeg -i {input_file1} -i {input_file2} "
         f"-filter_complex '[0:v]scale=854:480[v0];[1:v]scale=854:480[v1];"
         f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]' "
         f"-map '[outv]' -map '[outa]' {output_file}"
     )
-    subprocess.call(cmd, shell=True)
-
+    
+    # Run FFmpeg command asynchronously
+    process = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    # Wait for the process to finish and capture output
+    stdout, stderr = await process.communicate()
+    
+    if process.returncode == 0:
+        print(f"Merge completed successfully: {stdout}")
+    else:
+        print(f"Error in merging videos: {stderr}")
+        
 # Start message
 @app.on_message(filters.command("start"))
 async def start_message(client, message):
