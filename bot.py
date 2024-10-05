@@ -1,154 +1,106 @@
 import os
 import asyncio
-import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import subprocess
 from config import API_ID, API_HASH, BOT_TOKEN
 
-# Initialize the bot
-app = Client(
-    "audio_video_sync_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+# Initialize the bot with Pyrogram
+app = Client("video_editor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Path to save the files
-DOWNLOAD_PATH = "downloads/"
+# Dictionary to store user video file details for merging
+video_dict = {}
 
-# Function to run FFmpeg command
-async def run_ffmpeg(input_video, input_audio, output_file):
-    if not os.path.exists(input_video):
-        raise FileNotFoundError(f"Input video file does not exist: {input_video}")
-    if not os.path.exists(input_audio):
-        raise FileNotFoundError(f"Input audio file does not exist: {input_audio}")
+# Function to trim video using FFmpeg
+async def trim_video(input_file, start_time, end_time, output_file):
+    cmd = f"ffmpeg -i {input_file} -ss {start_time} -to {end_time} -c copy {output_file}"
+    subprocess.call(cmd, shell=True)
 
-    cmd = [
-        "ffmpeg",
-        "-y",  # Overwrite output file if it exists
-        "-i", input_video,
-        "-i", input_audio,
-        "-c:v", "copy",  # Copy video codec
-        "-c:a", "aac",   # Encode audio to AAC
-        "-strict", "experimental",
-        "-map", "0:v:0",  # Map video from the first input
-        "-map", "1:a:0",  # Map audio from the second input
-        "-shortest",  # End output as soon as one of the inputs ends
-        "-async", "1",  # Synchronize audio with video
-        output_file
-    ]
+# Function to merge two videos using FFmpeg
+async def merge_videos(input_file1, input_file2, output_file):
+    cmd = f"ffmpeg -i {input_file1} -i {input_file2} -filter_complex '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]' -map '[outv]' -map '[outa]' {output_file}"
+    subprocess.call(cmd, shell=True)
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        raise Exception(f"FFmpeg failed: {stderr.decode()}")
-
-    return output_file
-
-# Handler to start the bot and send a welcome message
+# Start message
 @app.on_message(filters.command("start"))
-async def start(client: Client, message: Message):
-    welcome_text = (
-        "Hello! 👋\n\n"
-        "I am a Video-Audio Synchronizer Bot. You can use me to synchronize audio and video files.\n\n"
-        "Here's how to use me:\n"
-        "1. Send a video file or reply to a video message with the `/sync` command.\n"
-        "2. I'll ask you to send the corresponding audio file.\n"
-        "3. I'll sync them together and send you the result!\n\n"
-        "Let's get started!"
-    )
-    await message.reply(welcome_text)
+async def start_message(client, message):
+    await message.reply_text("Welcome to the Video Editor Bot! Send me a video or document file to start editing.")
 
-# Function to display the download progress
-async def progress(current, total, message, action):
-    progress_percentage = int(current * 100 / total)
-    progress_message = f"{action}: {progress_percentage}%"
+# Handler for receiving video or document
+@app.on_message(filters.video | filters.document)
+async def handle_video(client, message):
+    # Send downloading status message
+    status_message = await message.reply_text("Downloading your file...")
+
+    # Download the video
+    video_path = await message.download()
+
+    # Update status message after download is complete
+    await status_message.edit_text("File downloaded successfully!")
+
+    # Send reply with inline buttons for "Trim Video" and "Merge Video"
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Trim Video", callback_data=f"trim|{message.message_id}")],
+        [InlineKeyboardButton("Merge Video", callback_data=f"merge|{message.message_id}")]
+    ])
+    await message.reply_text("Select an option:", reply_markup=buttons)
+
+# Callback query handler for the trim and merge actions
+@app.on_callback_query()
+async def handle_callback_query(client, callback_query):
+    data = callback_query.data.split("|")
+    action = data[0]
+    message_id = int(data[1])
+
+    # Download the video associated with the message
+    message = await callback_query.message.chat.get_messages(message_ids=message_id)
+    video_path = await message.download()
+
+    if action == "trim":
+        # Ask the user for start and end times (in HH:MM:SS format)
+        await callback_query.message.reply_text("Send the start and end times in HH:MM:SS format (e.g., 00:00:10-00:00:30).")
+
+        @app.on_message(filters.text)
+        async def get_trim_times(client, trim_message):
+            try:
+                start_time, end_time = trim_message.text.split("-")
+                output_file = "trimmed_" + os.path.basename(video_path)
+                status_message = await callback_query.message.reply_text("Trimming the video...")
+
+                # Trim video
+                await trim_video(video_path, start_time, end_time, output_file)
+
+                # Update status message after trimming is complete
+                await status_message.edit_text("Uploading trimmed video...")
+                
+                # Send the trimmed video
+                await callback_query.message.reply_video(video=output_file, caption="Here is your trimmed video.")
+                
+                os.remove(output_file)  # Clean up the file after sending
+            except Exception as e:
+                await callback_query.message.reply_text(f"Error: {e}")
     
-    # Fetch the current message text
-    current_text = message.text
+    elif action == "merge":
+        user_id = callback_query.from_user.id
+        if user_id in video_dict:
+            # Merge the stored video with the new one
+            video_path_2 = video_dict.pop(user_id)
+            output_file = "merged_" + os.path.basename(video_path)
+            status_message = await callback_query.message.reply_text("Merging videos...")
 
-    # Only edit if the message content has changed
-    if current_text != progress_message:
-        await message.edit_text(progress_message)
+            # Merge videos
+            await merge_videos(video_path, video_path_2, output_file)
 
-# Handler to download and synchronize video and audio
-@app.on_message(filters.command("sync") & filters.reply)
-async def sync_video_audio(client: Client, message: Message):
-    reply_message = message.reply_to_message
+            # Update status message after merging
+            await status_message.edit_text("Uploading merged video...")
 
-    if not (reply_message.video or reply_message.document):
-        await message.reply("Please reply to a video file or document containing a video.")
-        return
-
-    status_message = await message.reply("Downloading video...")
-
-    # Download the video with progress
-    video_file = await reply_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading video"))
-
-    # Verify video file existence
-    if not os.path.exists(video_file):
-        await status_message.edit_text(f"Video file does not exist: {video_file}")
-        return
-
-    # Update status after download
-    await status_message.edit_text("Video downloaded. Now, please send the audio file.")
-
-    # Wait for the audio file to be sent
-    @app.on_message(filters.document | filters.audio)
-    async def handle_audio(client: Client, audio_message: Message):
-        status_message = await audio_message.reply("Downloading audio...")
-
-        # Download the audio with progress
-        audio_file = await audio_message.download(DOWNLOAD_PATH, progress=progress, progress_args=(status_message, "Downloading audio"))
-
-        # Verify audio file existence
-        if not os.path.exists(audio_file):
-            await status_message.edit_text(f"Audio file does not exist: {audio_file}")
-            return
-
-        # Generate the output file name
-        output_file = os.path.join(DOWNLOAD_PATH, f"synced_{os.path.basename(video_file)}")
-
-        try:
-            # Run FFmpeg to sync video and audio
-            await status_message.edit_text("Synchronizing video and audio...")
-            await run_ffmpeg(video_file, audio_file, output_file)
-
-            # Verify output file existence
-            if not os.path.exists(output_file):
-                await status_message.edit_text(f"Output file was not created: {output_file}")
-                return
-
-            # Send the synchronized file with progress
-            status_message = await status_message.edit_text("Uploading synchronized video...")
-
-            await client.send_document(
-                message.chat.id, 
-                output_file, 
-                caption="Here is your synchronized video.", 
-                progress=progress, 
-                progress_args=(status_message, "Uploading synchronized video")
-            )
-
-        except Exception as e:
-            await status_message.edit_text(f"Error: {e}")
-
-        finally:
-            # Cleanup downloaded and output files
-            if os.path.exists(video_file):
-                os.remove(video_file)
-            if os.path.exists(audio_file):
-                os.remove(audio_file)
-            if os.path.exists(output_file):
-                os.remove(output_file)
+            # Send the merged video
+            await callback_query.message.reply_video(video=output_file, caption="Here is your merged video.")
+            os.remove(output_file)  # Clean up
+        else:
+            # Store the first video and ask for the second
+            video_dict[user_id] = video_path
+            await callback_query.message.reply_text("Send another video to merge with this one.")
 
 # Run the bot
-if __name__ == "__main__":
-    if not os.path.exists(DOWNLOAD_PATH):
-        os.makedirs(DOWNLOAD_PATH)
-    app.run()
+app.run()
