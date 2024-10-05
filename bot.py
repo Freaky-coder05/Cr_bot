@@ -40,8 +40,8 @@ async def handle_video(client, message):
 
     # Send reply with inline buttons for "Trim Video" and "Merge Video"
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Trim Video", callback_data=f"trim|{message.message_id}")],
-        [InlineKeyboardButton("Merge Video", callback_data=f"merge|{message.message_id}")]
+        [InlineKeyboardButton("Trim Video", callback_data=f"trim|{message.id}")],
+        [InlineKeyboardButton("Merge Video", callback_data=f"merge|{message.id}")]
     ])
     await message.reply_text("Select an option:", reply_markup=buttons)
 
@@ -49,12 +49,22 @@ async def handle_video(client, message):
 @app.on_callback_query()
 async def handle_callback_query(client, callback_query):
     data = callback_query.data.split("|")
+    
+    # Ensure data has the correct format
+    if len(data) != 2:
+        await callback_query.message.reply_text("Invalid data format.")
+        return
+
     action = data[0]
     message_id = int(data[1])
 
     # Download the video associated with the message
-    message = await callback_query.message.chat.get_messages(message_ids=message_id)
-    video_path = await message.download()
+    try:
+        message = await client.get_messages(chat_id=callback_query.message.chat.id, message_ids=message_id)
+        video_path = await message.download()
+    except Exception as e:
+        await callback_query.message.reply_text(f"Error downloading video: {e}")
+        return
 
     if action == "trim":
         # Ask the user for start and end times (in HH:MM:SS format)
