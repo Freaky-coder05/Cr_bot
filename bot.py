@@ -16,9 +16,14 @@ async def trim_video(input_file, start_time, end_time, output_file):
     cmd = f"ffmpeg -i {input_file} -ss {start_time} -to {end_time} -c copy {output_file}"
     subprocess.call(cmd, shell=True)
 
-# Function to merge two videos using FFmpeg
 async def merge_videos(input_file1, input_file2, output_file):
-    cmd = f"ffmpeg -i {input_file1} -i {input_file2} -filter_complex '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]' -map '[outv]' -map '[outa]' {output_file}"
+    # Use FFmpeg to scale both videos to the same resolution (e.g., 854x480)
+    cmd = (
+        f"ffmpeg -i {input_file1} -i {input_file2} "
+        f"-filter_complex '[0:v]scale=854:480[v0];[1:v]scale=854:480[v1];"
+        f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]' "
+        f"-map '[outv]' -map '[outa]' {output_file}"
+    )
     subprocess.call(cmd, shell=True)
 
 # Start message
