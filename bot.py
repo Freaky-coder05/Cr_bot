@@ -19,13 +19,20 @@ async def start(client, message):
 # When a video or document is sent, reply with Trim and Merge buttons
 @bot.on_message(filters.video | filters.document)
 async def video_handler(client, message: Message):
-    buttons = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("Trim Video", callback_data="trim_video")],
-            [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
-        ]
-    )
-    await message.reply("Choose an action for this video:", reply_markup=buttons)
+    user_id = message.from_user.id
+    
+    # Check if user is waiting for the second video for merging
+    if user_id in video_merger_dict and video_merger_dict[user_id]["awaiting_second_video"]:
+        await merge_video_process(client, message, user_id)
+    else:
+        # Show action buttons if this is the first video
+        buttons = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Trim Video", callback_data="trim_video")],
+                [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
+            ]
+        )
+        await message.reply("Choose an action for this video:", reply_markup=buttons)
 
 # Handle callback for trim video
 @bot.on_callback_query(filters.regex("trim_video"))
@@ -36,7 +43,12 @@ async def trim_video_callback(client, callback_query):
 # Handle callback for merge video
 @bot.on_callback_query(filters.regex("merge_video"))
 async def merge_video_callback(client, callback_query):
-    video_merger_dict[callback_query.from_user.id] = {"message_id": callback_query.message.id}
+    user_id = callback_query.from_user.id
+    video_merger_dict[user_id] = {
+        "message_id": callback_query.message.id,
+        "first_video": await callback_query.message.reply_to_message.download(),
+        "awaiting_second_video": True
+    }
     await callback_query.message.reply("Please send the second video to merge.")
 
 # Trim the video
@@ -47,7 +59,7 @@ async def trim_video(client, message):
         try:
             start_time, end_time = map(int, message.text.split())
             video = message.reply_to_message.video or message.reply_to_message.document
-            
+
             # Status message for downloading
             download_message = await message.reply("Downloading the video...")
             file_path = await message.reply_to_message.download()
@@ -67,21 +79,14 @@ async def trim_video(client, message):
             await message.reply(f"Error trimming video: {e}")
 
 # Merge two videos
-@bot.on_message(filters.video | filters.document)
-async def merge_video(client, message):
-    user_id = message.from_user.id
-    if user_id in video_merger_dict:
-        first_video_msg_id = video_merger_dict[user_id]["message_id"]
-        first_video = await client.get_messages(message.chat.id, first_video_msg_id)
-        
-        # Status message for downloading
-        download_message1 = await message.reply("Downloading the first video...")
-        first_video_path = await first_video.video.download()
-        await download_message1.edit("First video downloaded. Waiting for the second video...")
+async def merge_video_process(client, message, user_id):
+    try:
+        first_video_path = video_merger_dict[user_id]["first_video"]
 
-        download_message2 = await message.reply("Downloading the second video...")
+        # Status message for downloading second video
+        download_message = await message.reply("Downloading the second video...")
         second_video_path = await message.download()
-        await download_message2.edit("Second video downloaded. Merging the videos...")
+        await download_message.edit("Second video downloaded. Merging the videos...")
 
         output_file = f"merged_{os.path.basename(first_video_path)}"
 
@@ -93,6 +98,12 @@ async def merge_video(client, message):
         os.remove(first_video_path)
         os.remove(second_video_path)
         os.remove(output_file)
+
+        # Clear the user from the dictionary
+        del video_merger_dict[user_id]
+
+    except Exception as e:
+        await message.reply(f"Error merging videos: {e}")
         del video_merger_dict[user_id]
 
 if __name__ == "__main__":
