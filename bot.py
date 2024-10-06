@@ -33,7 +33,7 @@ async def video_handler(client, message: Message):
             ]
         )
         # Store the original video message ID for later use (in case of merging)
-        bot_data[message.message_id] = message
+        bot_data[message.id] = message  # Fixed attribute: message.id
         await message.reply("Choose an action for this video:", reply_markup=buttons)
 
 # Handle callback for trim video
@@ -48,7 +48,7 @@ async def merge_video_callback(client, callback_query):
     user_id = callback_query.from_user.id
     
     # Retrieve the original message containing the first video
-    first_video_message = bot_data.get(callback_query.message.reply_to_message.message_id)
+    first_video_message = bot_data.get(callback_query.message.reply_to_message.id)  # Fixed attribute: message.id
     
     if first_video_message:
         video_merger_dict[user_id] = {
