@@ -32,6 +32,8 @@ async def video_handler(client, message: Message):
                 [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
             ]
         )
+        # Store the original video message ID for later use (in case of merging)
+        bot_data[message.message_id] = message
         await message.reply("Choose an action for this video:", reply_markup=buttons)
 
 # Handle callback for trim video
@@ -44,12 +46,19 @@ async def trim_video_callback(client, callback_query):
 @bot.on_callback_query(filters.regex("merge_video"))
 async def merge_video_callback(client, callback_query):
     user_id = callback_query.from_user.id
-    video_merger_dict[user_id] = {
-        "message_id": callback_query.message.id,
-        "first_video": await callback_query.message.reply_to_message.download(),
-        "awaiting_second_video": True
-    }
-    await callback_query.message.reply("Please send the second video to merge.")
+    
+    # Retrieve the original message containing the first video
+    first_video_message = bot_data.get(callback_query.message.reply_to_message.message_id)
+    
+    if first_video_message:
+        video_merger_dict[user_id] = {
+            "message_id": callback_query.message.id,
+            "first_video": await first_video_message.download(),
+            "awaiting_second_video": True
+        }
+        await callback_query.message.reply("Please send the second video to merge.")
+    else:
+        await callback_query.message.reply("Error: Could not find the first video.")
 
 # Trim the video
 @bot.on_message(filters.text & filters.reply)
