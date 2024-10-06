@@ -1,135 +1,99 @@
 import os
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import subprocess
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from config import API_ID, API_HASH, BOT_TOKEN
+import ffmpeg
 
-# Initialize the bot with Pyrogram
-app = Client("video_editor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client("video_editor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Dictionary to store user video file details for merging
-video_dict = {}
+# Dictionary to store videos for merging
+video_merger_dict = {}
+bot_data = {}
 
-# Function to trim video using FFmpeg
-async def trim_video(input_file, start_time, end_time, output_file):
-    cmd = f"ffmpeg -i {input_file} -ss {start_time} -to {end_time} -c copy {output_file}"
-    subprocess.call(cmd, shell=True)
-
-async def merge_videos(input_file1, input_file2, output_file):
-    # FFmpeg command to scale both videos to the same resolution (854x480) and merge
-    cmd = (
-        f"ffmpeg -i {input_file1} -i {input_file2} "
-        f"-filter_complex '[0:v]scale=854:480[v0];[1:v]scale=854:480[v1];"
-        f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]' "
-        f"-map '[outv]' -map '[outa]' {output_file}"
-    )
-    
-    # Run FFmpeg command asynchronously
-    process = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    
-    # Wait for the process to finish and capture output
-    stdout, stderr = await process.communicate()
-    
-    if process.returncode == 0:
-        print(f"Merge completed successfully: {stdout}")
-    else:
-        print(f"Error in merging videos: {stderr}")
-        
 # Start message
-@app.on_message(filters.command("start"))
-async def start_message(client, message):
-    await message.reply_text("Welcome to the Video Editor Bot! Send me a video or document file to start editing.")
+@bot.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply("Welcome to the Video Editor Bot. You can send a video or document, and choose to trim or merge it.")
 
-# Handler for receiving video or document
-@app.on_message(filters.video | filters.document)
-async def handle_video(client, message):
-    # Send downloading status message
-    status_message = await message.reply_text("Downloading your file...")
+# When a video or document is sent, reply with Trim and Merge buttons
+@bot.on_message(filters.video | filters.document)
+async def video_handler(client, message: Message):
+    buttons = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Trim Video", callback_data="trim_video")],
+            [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
+        ]
+    )
+    await message.reply("Choose an action for this video:", reply_markup=buttons)
 
-    # Download the video
-    video_path = await message.download()
+# Handle callback for trim video
+@bot.on_callback_query(filters.regex("trim_video"))
+async def trim_video_callback(client, callback_query):
+    await callback_query.message.reply("Please provide the start and end times (in seconds) to trim the video.\nExample: `10 60` to trim from 10s to 60s.")
+    bot_data[callback_query.from_user.id] = {"action": "trim", "message_id": callback_query.message.id}
 
-    # Update status message after download is complete
-    await status_message.edit_text("File downloaded successfully!")
+# Handle callback for merge video
+@bot.on_callback_query(filters.regex("merge_video"))
+async def merge_video_callback(client, callback_query):
+    video_merger_dict[callback_query.from_user.id] = {"message_id": callback_query.message.id}
+    await callback_query.message.reply("Please send the second video to merge.")
 
-    # Send reply with inline buttons for "Trim Video" and "Merge Video"
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Trim Video", callback_data=f"trim|{message.id}")],
-        [InlineKeyboardButton("Merge Video", callback_data=f"merge|{message.id}")]
-    ])
-    await message.reply_text("Select an option:", reply_markup=buttons)
+# Trim the video
+@bot.on_message(filters.text & filters.reply)
+async def trim_video(client, message):
+    user_id = message.from_user.id
+    if user_id in bot_data and bot_data[user_id]["action"] == "trim":
+        try:
+            start_time, end_time = map(int, message.text.split())
+            video = message.reply_to_message.video or message.reply_to_message.document
+            
+            # Status message for downloading
+            download_message = await message.reply("Downloading the video...")
+            file_path = await message.reply_to_message.download()
+            await download_message.edit("Download complete. Trimming the video...")
 
-# Callback query handler for the trim and merge actions
-@app.on_callback_query()
-async def handle_callback_query(client, callback_query):
-    data = callback_query.data.split("|")
-    
-    # Ensure data has the correct format
-    if len(data) != 2:
-        await callback_query.message.reply_text("Invalid data format.")
-        return
+            output_file = f"trimmed_{os.path.basename(file_path)}"
 
-    action = data[0]
-    message_id = int(data[1])
+            # FFmpeg command for trimming
+            ffmpeg.input(file_path, ss=start_time, to=end_time).output(output_file).run()
 
-    # Download the video associated with the message
-    try:
-        message = await client.get_messages(chat_id=callback_query.message.chat.id, message_ids=message_id)
-        video_path = await message.download()
-    except Exception as e:
-        await callback_query.message.reply_text(f"Error downloading video: {e}")
-        return
+            # Status message for uploading
+            await message.reply_video(output_file, caption="Here is your trimmed video.")
+            os.remove(file_path)
+            os.remove(output_file)
 
-    if action == "trim":
-        # Ask the user for start and end times (in HH:MM:SS format)
-        await callback_query.message.reply_text("Send the start and end times in HH:MM:SS format (e.g., 00:00:10-00:00:30).")
+        except Exception as e:
+            await message.reply(f"Error trimming video: {e}")
 
-        @app.on_message(filters.text)
-        async def get_trim_times(client, trim_message):
-            try:
-                start_time, end_time = trim_message.text.split("-")
-                output_file = "trimmed_" + os.path.basename(video_path)
-                status_message = await callback_query.message.reply_text("Trimming the video...")
+# Merge two videos
+@bot.on_message(filters.video | filters.document)
+async def merge_video(client, message):
+    user_id = message.from_user.id
+    if user_id in video_merger_dict:
+        first_video_msg_id = video_merger_dict[user_id]["message_id"]
+        first_video = await client.get_messages(message.chat.id, first_video_msg_id)
+        
+        # Status message for downloading
+        download_message1 = await message.reply("Downloading the first video...")
+        first_video_path = await first_video.video.download()
+        await download_message1.edit("First video downloaded. Waiting for the second video...")
 
-                # Trim video
-                await trim_video(video_path, start_time, end_time, output_file)
+        download_message2 = await message.reply("Downloading the second video...")
+        second_video_path = await message.download()
+        await download_message2.edit("Second video downloaded. Merging the videos...")
 
-                # Update status message after trimming is complete
-                await status_message.edit_text("Uploading trimmed video...")
-                
-                # Send the trimmed video
-                await callback_query.message.reply_video(video=output_file, caption="Here is your trimmed video.")
-                
-                os.remove(output_file)  # Clean up the file after sending
-            except Exception as e:
-                await callback_query.message.reply_text(f"Error: {e}")
-    
-    elif action == "merge":
-        user_id = callback_query.from_user.id
-        if user_id in video_dict:
-            # Merge the stored video with the new one
-            video_path_2 = video_dict.pop(user_id)
-            output_file = "merged_" + os.path.basename(video_path)
-            status_message = await callback_query.message.reply_text("Merging videos...")
+        output_file = f"merged_{os.path.basename(first_video_path)}"
 
-            # Merge videos
-            await merge_videos(video_path, video_path_2, output_file)
+        # FFmpeg command for merging videos
+        ffmpeg.concat(ffmpeg.input(first_video_path), ffmpeg.input(second_video_path)).output(output_file).run()
 
-            # Update status message after merging
-            await status_message.edit_text("Uploading merged video...")
+        # Status message for uploading
+        await message.reply_video(output_file, caption="Here is your merged video.")
+        os.remove(first_video_path)
+        os.remove(second_video_path)
+        os.remove(output_file)
+        del video_merger_dict[user_id]
 
-            # Send the merged video
-            await callback_query.message.reply_video(video=output_file, caption="Here is your merged video.")
-            os.remove(output_file)  # Clean up
-        else:
-            # Store the first video and ask for the second
-            video_dict[user_id] = video_path
-            await callback_query.message.reply_text("Send another video to merge with this one.")
-
-# Run the bot
-app.run()
+if __name__ == "__main__":
+    bot.run()
