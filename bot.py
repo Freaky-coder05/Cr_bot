@@ -32,15 +32,15 @@ async def video_handler(client, message: Message):
                 [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
             ]
         )
-        # Store the original video message ID for later use (in case of merging)
-        bot_data[message.id] = message  # Fixed attribute: message.id
+        # Store the original video message for later use (in case of merging)
+        bot_data[user_id] = {"video_message": message}
         await message.reply("Choose an action for this video:", reply_markup=buttons)
 
 # Handle callback for trim video
 @bot.on_callback_query(filters.regex("trim_video"))
 async def trim_video_callback(client, callback_query):
     await callback_query.message.reply("Please provide the start and end times (in seconds) to trim the video.\nExample: `10 60` to trim from 10s to 60s.")
-    bot_data[callback_query.from_user.id] = {"action": "trim", "message_id": callback_query.message.id}
+    bot_data[callback_query.from_user.id]["action"] = "trim"
 
 # Handle callback for merge video
 @bot.on_callback_query(filters.regex("merge_video"))
@@ -48,12 +48,13 @@ async def merge_video_callback(client, callback_query):
     user_id = callback_query.from_user.id
     
     # Retrieve the original message containing the first video
-    first_video_message = bot_data.get(callback_query.message.reply_to_message.id)  # Fixed attribute: message.id
-    
-    if first_video_message:
+    if user_id in bot_data and "video_message" in bot_data[user_id]:
+        first_video_message = bot_data[user_id]["video_message"]
+        first_video_path = await first_video_message.download()
+        
+        # Store the first video and mark waiting for the second video
         video_merger_dict[user_id] = {
-            "message_id": callback_query.message.id,
-            "first_video": await first_video_message.download(),
+            "first_video": first_video_path,
             "awaiting_second_video": True
         }
         await callback_query.message.reply("Please send the second video to merge.")
@@ -67,11 +68,11 @@ async def trim_video(client, message):
     if user_id in bot_data and bot_data[user_id]["action"] == "trim":
         try:
             start_time, end_time = map(int, message.text.split())
-            video = message.reply_to_message.video or message.reply_to_message.document
+            video = bot_data[user_id]["video_message"].video or bot_data[user_id]["video_message"].document
 
             # Status message for downloading
             download_message = await message.reply("Downloading the video...")
-            file_path = await message.reply_to_message.download()
+            file_path = await bot_data[user_id]["video_message"].download()
             await download_message.edit("Download complete. Trimming the video...")
 
             output_file = f"trimmed_{os.path.basename(file_path)}"
