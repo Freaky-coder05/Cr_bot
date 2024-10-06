@@ -88,7 +88,7 @@ async def trim_video(client, message):
         except Exception as e:
             await message.reply(f"Error trimming video: {e}")
 
-# Merge two videos
+# Merge two videos with re-encoding
 async def merge_video_process(client, message, user_id):
     try:
         first_video_path = video_merger_dict[user_id]["first_video"]
@@ -100,14 +100,26 @@ async def merge_video_process(client, message, user_id):
 
         output_file = f"merged_{os.path.basename(first_video_path)}"
 
+        # Re-encode both videos to the same format (MP4), resolution, and framerate before merging
+        temp_first = "reencoded_first.mp4"
+        temp_second = "reencoded_second.mp4"
+        
+        # Re-encode the first video
+        ffmpeg.input(first_video_path).output(temp_first, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
+        
+        # Re-encode the second video
+        ffmpeg.input(second_video_path).output(temp_second, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
+
         # FFmpeg command for merging videos
-        ffmpeg.concat(ffmpeg.input(first_video_path), ffmpeg.input(second_video_path)).output(output_file).run()
+        ffmpeg.concat(ffmpeg.input(temp_first), ffmpeg.input(temp_second), v=1, a=1).output(output_file).run()
 
         # Status message for uploading
         await message.reply_video(output_file, caption="Here is your merged video.")
         os.remove(first_video_path)
         os.remove(second_video_path)
         os.remove(output_file)
+        os.remove(temp_first)
+        os.remove(temp_second)
 
         # Clear the user from the dictionary
         del video_merger_dict[user_id]
