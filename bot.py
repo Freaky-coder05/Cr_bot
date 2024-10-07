@@ -98,49 +98,17 @@ async def merge_video_process(client, message, user_id):
         second_video_path = await message.download()
         await download_message.edit("Second video downloaded. Merging the videos...")
 
-        # Check if the two videos have the same codec, resolution, and frame rate
-        first_video_info = ffmpeg.probe(first_video_path)
-        second_video_info = ffmpeg.probe(second_video_path)
+        output_file = f"merged_{os.path.basename(first_video_path)}"
 
-        first_video_stream = next(stream for stream in first_video_info['streams'] if stream['codec_type'] == 'video')
-        second_video_stream = next(stream for stream in second_video_info['streams'] if stream['codec_type'] == 'video')
+        # Merge the videos using FFmpeg concat filter (concatenates both video and audio streams)
+        ffmpeg.concat(
+            ffmpeg.input(first_video_path),
+            ffmpeg.input(second_video_path),
+            v=1, a=1
+        ).output(output_file).run()
 
-        if (first_video_stream['codec_name'] == second_video_stream['codec_name'] and
-            first_video_stream['width'] == second_video_stream['width'] and
-            first_video_stream['height'] == second_video_stream['height'] and
-            first_video_stream['r_frame_rate'] == second_video_stream['r_frame_rate']):
-            
-            # Fast merging using concat demuxer (no re-encoding)
-            with open("videos_to_merge.txt", "w") as f:
-                f.write(f"file '{first_video_path}'\n")
-                f.write(f"file '{second_video_path}'\n")
-            
-            output_file = f"merged_{os.path.basename(first_video_path)}"
-            await asyncio.create_subprocess_exec("ffmpeg", "-f", "concat", "-safe", "0", "-i", "videos_to_merge.txt", "-c", "copy", output_file)
-            
-            # Status message for uploading
-            await message.reply_video(output_file, caption="Here is your merged video.")
-        
-        else:
-            # Fallback to re-encoding if videos differ in codec/resolution/frame rate
-            temp_first = "reencoded_first.mp4"
-            temp_second = "reencoded_second.mp4"
-
-            # Re-encode the first video
-            ffmpeg.input(first_video_path).output(temp_first, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
-            
-            # Re-encode the second video
-            ffmpeg.input(second_video_path).output(temp_second, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
-
-            output_file = f"merged_{os.path.basename(first_video_path)}"
-
-            # Merge the re-encoded videos
-            ffmpeg.concat(ffmpeg.input(temp_first), ffmpeg.input(temp_second), v=1, a=1).output(output_file).run()
-
-            # Status message for uploading
-            await message.reply_video(output_file, caption="Here is your merged video.")
-            os.remove(temp_first)
-            os.remove(temp_second)
+        # Status message for uploading
+        await message.reply_video(output_file, caption="Here is your merged video.")
 
         # Remove original files and temp files
         os.remove(first_video_path)
