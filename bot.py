@@ -61,33 +61,6 @@ async def merge_video_callback(client, callback_query):
     else:
         await callback_query.message.reply("Error: Could not find the first video.")
 
-# Trim the video
-@bot.on_message(filters.text & filters.reply)
-async def trim_video(client, message):
-    user_id = message.from_user.id
-    if user_id in bot_data and bot_data[user_id]["action"] == "trim":
-        try:
-            start_time, end_time = map(int, message.text.split())
-            video = bot_data[user_id]["video_message"].video or bot_data[user_id]["video_message"].document
-
-            # Status message for downloading
-            download_message = await message.reply("Downloading the video...")
-            file_path = await bot_data[user_id]["video_message"].download()
-            await download_message.edit("Download complete. Trimming the video...")
-
-            output_file = f"trimmed_{os.path.basename(file_path)}"
-
-            # FFmpeg command for trimming
-            ffmpeg.input(file_path, ss=start_time, to=end_time).output(output_file).run()
-
-            # Status message for uploading
-            await message.reply_video(output_file, caption="Here is your trimmed video.")
-            os.remove(file_path)
-            os.remove(output_file)
-
-        except Exception as e:
-            await message.reply(f"Error trimming video: {e}")
-
 # Optimized Merge Process
 async def merge_video_process(client, message, user_id):
     try:
@@ -100,19 +73,25 @@ async def merge_video_process(client, message, user_id):
 
         output_file = f"merged_{os.path.basename(first_video_path)}"
 
-        # Merge the videos using FFmpeg concat filter (concatenates both video and audio streams)
-        ffmpeg.concat(
-            ffmpeg.input(first_video_path),
-            ffmpeg.input(second_video_path),
-            v=1, a=1
-        ).output(output_file).run()
+        # Re-encode both videos to a format that can be concatenated
+        first_encoded = f"encoded_{os.path.basename(first_video_path)}"
+        second_encoded = f"encoded_{os.path.basename(second_video_path)}"
+
+        # Convert both videos to a common codec/container (e.g., H.264 in mp4)
+        ffmpeg.input(first_video_path).output(first_encoded, vcodec='libx264', acodec='aac', strict='experimental').run()
+        ffmpeg.input(second_video_path).output(second_encoded, vcodec='libx264', acodec='aac', strict='experimental').run()
+
+        # Concatenate the two re-encoded videos
+        ffmpeg.input(f"concat:{first_encoded}|{second_encoded}", format="concat", v=1, a=1).output(output_file).run()
 
         # Status message for uploading
         await message.reply_video(output_file, caption="Here is your merged video.")
 
-        # Remove original files and temp files
+        # Clean up
         os.remove(first_video_path)
         os.remove(second_video_path)
+        os.remove(first_encoded)
+        os.remove(second_encoded)
         os.remove(output_file)
 
         # Clear the user from the dictionary
