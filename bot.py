@@ -88,7 +88,7 @@ async def trim_video(client, message):
         except Exception as e:
             await message.reply(f"Error trimming video: {e}")
 
-# Merge two videos with re-encoding
+# Optimized Merge Process
 async def merge_video_process(client, message, user_id):
     try:
         first_video_path = video_merger_dict[user_id]["first_video"]
@@ -98,28 +98,54 @@ async def merge_video_process(client, message, user_id):
         second_video_path = await message.download()
         await download_message.edit("Second video downloaded. Merging the videos...")
 
-        output_file = f"merged_{os.path.basename(first_video_path)}"
+        # Check if the two videos have the same codec, resolution, and frame rate
+        first_video_info = ffmpeg.probe(first_video_path)
+        second_video_info = ffmpeg.probe(second_video_path)
 
-        # Re-encode both videos to the same format (MP4), resolution, and framerate before merging
-        temp_first = "reencoded_first.mp4"
-        temp_second = "reencoded_second.mp4"
+        first_video_stream = next(stream for stream in first_video_info['streams'] if stream['codec_type'] == 'video')
+        second_video_stream = next(stream for stream in second_video_info['streams'] if stream['codec_type'] == 'video')
+
+        if (first_video_stream['codec_name'] == second_video_stream['codec_name'] and
+            first_video_stream['width'] == second_video_stream['width'] and
+            first_video_stream['height'] == second_video_stream['height'] and
+            first_video_stream['r_frame_rate'] == second_video_stream['r_frame_rate']):
+            
+            # Fast merging using concat demuxer (no re-encoding)
+            with open("videos_to_merge.txt", "w") as f:
+                f.write(f"file '{first_video_path}'\n")
+                f.write(f"file '{second_video_path}'\n")
+            
+            output_file = f"merged_{os.path.basename(first_video_path)}"
+            await asyncio.create_subprocess_exec("ffmpeg", "-f", "concat", "-safe", "0", "-i", "videos_to_merge.txt", "-c", "copy", output_file)
+            
+            # Status message for uploading
+            await message.reply_video(output_file, caption="Here is your merged video.")
         
-        # Re-encode the first video
-        ffmpeg.input(first_video_path).output(temp_first, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
-        
-        # Re-encode the second video
-        ffmpeg.input(second_video_path).output(temp_second, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
+        else:
+            # Fallback to re-encoding if videos differ in codec/resolution/frame rate
+            temp_first = "reencoded_first.mp4"
+            temp_second = "reencoded_second.mp4"
 
-        # FFmpeg command for merging videos
-        ffmpeg.concat(ffmpeg.input(temp_first), ffmpeg.input(temp_second), v=1, a=1).output(output_file).run()
+            # Re-encode the first video
+            ffmpeg.input(first_video_path).output(temp_first, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
+            
+            # Re-encode the second video
+            ffmpeg.input(second_video_path).output(temp_second, vcodec="libx264", acodec="aac", vf="scale=1280:720", r=30).run()
 
-        # Status message for uploading
-        await message.reply_video(output_file, caption="Here is your merged video.")
+            output_file = f"merged_{os.path.basename(first_video_path)}"
+
+            # Merge the re-encoded videos
+            ffmpeg.concat(ffmpeg.input(temp_first), ffmpeg.input(temp_second), v=1, a=1).output(output_file).run()
+
+            # Status message for uploading
+            await message.reply_video(output_file, caption="Here is your merged video.")
+            os.remove(temp_first)
+            os.remove(temp_second)
+
+        # Remove original files and temp files
         os.remove(first_video_path)
         os.remove(second_video_path)
         os.remove(output_file)
-        os.remove(temp_first)
-        os.remove(temp_second)
 
         # Clear the user from the dictionary
         del video_merger_dict[user_id]
