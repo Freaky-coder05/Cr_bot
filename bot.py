@@ -1,95 +1,127 @@
 import os
-import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from config import API_ID, API_HASH, BOT_TOKEN
-import ffmpeg
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import subprocess
+from config import API_ID, API_HASH, BOT_TOKEN, FFMPEG_PATH
 
-bot = Client("video_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Create a Pyrogram client
+app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Dictionary to store videos for merging
-video_merger_dict = {}
-bot_data = {}
+# Global watermark settings (defaults)
+watermark_text = None
+watermark_opacity = 1.0  # 1.0 means full visibility, 0.0 means fully transparent
+watermark_position = "top-right"
+watermark_width = 100
 
 # Start message
-@bot.on_message(filters.command("start"))
+@app.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("Welcome to the Video Merger Bot. Send a video or document and choose to merge it.")
+    await message.reply("Welcome to the Video Watermark Adder bot! Use /add_watermark to start adding watermarks.")
 
-# When a video or document is sent, reply with the Merge button
-@bot.on_message(filters.video | filters.document)
-async def video_handler(client, message: Message):
-    user_id = message.from_user.id
-    
-    # Check if user is waiting for the second video for merging
-    if user_id in video_merger_dict and video_merger_dict[user_id]["awaiting_second_video"]:
-        await merge_video_process(client, message, user_id)
-    else:
-        # Show Merge button if this is the first video
-        buttons = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("Merge Video", callback_data="merge_video")]
-            ]
-        )
-        # Store the original video message for later use (in case of merging)
-        bot_data[user_id] = {"video_message": message}
-        await message.reply("Choose an action for this video:", reply_markup=buttons)
+# Add watermark command to set watermark text
+@app.on_message(filters.command("add_watermark"))
+async def add_watermark(client, message):
+    await message.reply("Please send the text you want to use as a watermark.")
 
-# Handle callback for merge video
-@bot.on_callback_query(filters.regex("merge_video"))
-async def merge_video_callback(client, callback_query):
-    user_id = callback_query.from_user.id
-    
-    # Retrieve the original message containing the first video
-    if user_id in bot_data and "video_message" in bot_data[user_id]:
-        first_video_message = bot_data[user_id]["video_message"]
-        first_video_path = await first_video_message.download()
-        
-        # Store the first video and mark waiting for the second video
-        video_merger_dict[user_id] = {
-            "first_video": first_video_path,
-            "awaiting_second_video": True
-        }
-        await callback_query.message.reply("Please send the second video to merge.")
-    else:
-        await callback_query.message.reply("Error: Could not find the first video.")
+@app.on_message(filters.text & ~filters.command)
+async def set_watermark(client, message):
+    global watermark_text
+    watermark_text = message.text
+    await message.reply("Watermark added successfully!")
 
-# Merge Process (Without Re-encoding)
-async def merge_video_process(client, message, user_id):
+# Edit watermark settings using inline buttons
+@app.on_message(filters.command("edit_watermark"))
+async def edit_watermark(client, message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Transparency", callback_data="set_transparency")],
+        [InlineKeyboardButton("Position", callback_data="set_position")],
+        [InlineKeyboardButton("Width", callback_data="set_width")]
+    ])
+    await message.reply("Adjust watermark settings:", reply_markup=keyboard)
+
+@app.on_callback_query()
+async def handle_callback(client, callback_query):
+    global watermark_opacity, watermark_position, watermark_width
+    data = callback_query.data
+
+    if data == "set_transparency":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("100%", callback_data="opacity_1.0")],
+            [InlineKeyboardButton("75%", callback_data="opacity_0.75")],
+            [InlineKeyboardButton("50%", callback_data="opacity_0.5")],
+            [InlineKeyboardButton("25%", callback_data="opacity_0.25")],
+        ])
+        await callback_query.message.reply("Choose watermark transparency:", reply_markup=keyboard)
+    elif data.startswith("opacity_"):
+        watermark_opacity = float(data.split("_")[1])
+        await callback_query.message.reply(f"Transparency set to {int(watermark_opacity * 100)}%")
+
+    elif data == "set_position":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Top Right", callback_data="position_top-right")],
+            [InlineKeyboardButton("Top Left", callback_data="position_top-left")],
+            [InlineKeyboardButton("Bottom Right", callback_data="position_bottom-right")],
+            [InlineKeyboardButton("Bottom Left", callback_data="position_bottom-left")],
+        ])
+        await callback_query.message.reply("Choose watermark position:", reply_markup=keyboard)
+    elif data.startswith("position_"):
+        watermark_position = data.split("_")[1]
+        await callback_query.message.reply(f"Position set to {watermark_position.replace('-', ' ').title()}")
+
+    elif data == "set_width":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("100px", callback_data="width_100")],
+            [InlineKeyboardButton("200px", callback_data="width_200")],
+            [InlineKeyboardButton("300px", callback_data="width_300")],
+        ])
+        await callback_query.message.reply("Choose watermark width:", reply_markup=keyboard)
+    elif data.startswith("width_"):
+        watermark_width = int(data.split("_")[1])
+        await callback_query.message.reply(f"Watermark width set to {watermark_width}px")
+
+# Add watermark to video
+@app.on_message(filters.command("watermark") & filters.reply)
+async def add_watermark_to_video(client, message):
+    global watermark_text, watermark_opacity, watermark_position, watermark_width
+
+    if not watermark_text:
+        await message.reply("Please set a watermark text first using /add_watermark.")
+        return
+
+    if not message.reply_to_message.video and not message.reply_to_message.document:
+        await message.reply("Please reply to a video or document file to add the watermark.")
+        return
+
+    file_path = await message.reply_to_message.download()
+
+    # Generate watermark command
+    position_dict = {
+        "top-right": "main_w-overlay_w-10:10",
+        "top-left": "10:10",
+        "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
+        "bottom-left": "10:main_h-overlay_h-10"
+    }
+    position = position_dict.get(watermark_position, "main_w-overlay_w-10:10")
+    output_file = f"watermarked_{message.reply_to_message.video.file_name or message.reply_to_message.document.file_name}"
+
+    ffmpeg_cmd = [
+        FFMPEG_PATH, "-i", file_path, "-vf",
+        f"drawtext=text='{watermark_text}':fontcolor=white@{watermark_opacity}:fontsize={watermark_width}:x={position}",
+        output_file
+    ]
+
     try:
-        first_video_path = video_merger_dict[user_id]["first_video"]
-
-        # Status message for downloading second video
-        download_message = await message.reply("Downloading the second video...")
-        second_video_path = await message.download()
-        await download_message.edit("Second video downloaded. Merging the videos...")
-
-        # Create a temporary text file to store the file paths for FFmpeg concat
-        concat_list_path = f"{user_id}_concat.txt"
-        with open(concat_list_path, "w") as file:
-            file.write(f"file '{first_video_path}'\n")
-            file.write(f"file '{second_video_path}'\n")
-
-        output_file = f"merged_{os.path.basename(first_video_path)}"
-
-        # Use FFmpeg concat demuxer to merge videos without re-encoding
-        ffmpeg.input(concat_list_path, format="concat", safe=0).output(output_file, c='copy').run()
-
-        # Status message for uploading
-        await message.reply_video(output_file, caption="Here is your merged video.")
-
-        # Clean up
-        os.remove(first_video_path)
-        os.remove(second_video_path)
-        os.remove(output_file)
-        os.remove(concat_list_path)
-
-        # Clear the user from the dictionary
-        del video_merger_dict[user_id]
-
+        # Run FFmpeg command
+        subprocess.run(ffmpeg_cmd, check=True)
+        await message.reply_video(output_file, caption="Here's your watermarked video!")
     except Exception as e:
-        await message.reply(f"Error merging videos: {e}")
-        del video_merger_dict[user_id]
+        await message.reply(f"Error while adding watermark: {str(e)}")
+    finally:
+        # Clean up
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        if os.path.exists(output_file):
+            os.remove(output_file)
 
 if __name__ == "__main__":
-    bot.run()
+    app.run()
