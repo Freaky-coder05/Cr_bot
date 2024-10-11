@@ -7,9 +7,9 @@ from config import API_ID, API_HASH, BOT_TOKEN, FFMPEG_PATH
 # Create a Pyrogram client
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Global watermark settings (defaults)
+# Global watermark settings
 watermark_text = None
-watermark_opacity = 1.0  # 1.0 means full visibility, 0.0 means fully transparent
+watermark_opacity = 1.0  # Full visibility
 watermark_position = "top-right"
 watermark_width = 100
 
@@ -23,12 +23,12 @@ async def start(client, message):
 async def add_watermark(client, message):
     await message.reply("Please send the text you want to use as a watermark.")
 
-# Handle setting the watermark text (avoid treating commands as watermark text)
-@app.on_message(filters.text & ~filters.command)
+# Handle setting the watermark text
+@app.on_message(filters.text & ~filters.command())
 async def set_watermark(client, message):
     global watermark_text
     watermark_text = message.text.strip()
-    await message.reply(f"Watermark text set to: {watermark_text}. Now you can send a video, and I will add the watermark automatically.")
+    await message.reply(f"Watermark text set to: {watermark_text}. You can now send a video, and I will add the watermark automatically.")
 
 # Edit watermark settings using inline buttons
 @app.on_message(filters.command("edit_watermark"))
@@ -90,7 +90,6 @@ async def watermark_video(client, message):
         await message.reply("Please set a watermark text first using /add_watermark.")
         return
 
-    # Notify user that the video is being downloaded
     await message.reply("Downloading video...")
 
     # Download the video or document
