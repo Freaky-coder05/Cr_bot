@@ -23,13 +23,13 @@ async def start(client, message):
 async def add_watermark(client, message):
     await message.reply("Please send the text you want to use as a watermark.")
 
-# This part is to receive the text for the watermark, excluding commands
-@app.on_message(filters.text & ~filters.command("add_watermark"))
+# Handle setting the watermark text (avoid treating commands as watermark text)
+@app.on_message(filters.text & ~filters.command)
 async def set_watermark(client, message):
     global watermark_text
-    watermark_text = message.text
-    await message.reply(f"Watermark text set to: {watermark_text}. Now you can use /watermark on a video.")
-    
+    watermark_text = message.text.strip()
+    await message.reply(f"Watermark text set to: {watermark_text}. Now you can send a video, and I will add the watermark automatically.")
+
 # Edit watermark settings using inline buttons
 @app.on_message(filters.command("edit_watermark"))
 async def edit_watermark(client, message):
@@ -80,9 +80,9 @@ async def handle_callback(client, callback_query):
         watermark_width = int(data.split("_")[1])
         await callback_query.message.reply(f"Watermark width set to {watermark_width}px")
 
-# Handle watermarking the video
-@app.on_message(filters.command("watermark") & filters.reply)
-async def add_watermark_to_video(client, message):
+# Automatically process video or document files for watermarking
+@app.on_message(filters.video | filters.document)
+async def watermark_video(client, message):
     global watermark_text, watermark_opacity, watermark_position, watermark_width
 
     # Ensure watermark text is set
@@ -90,19 +90,14 @@ async def add_watermark_to_video(client, message):
         await message.reply("Please set a watermark text first using /add_watermark.")
         return
 
-    # Ensure the replied message is a video or document
-    if not message.reply_to_message.video and not message.reply_to_message.document:
-        await message.reply("Please reply to a video or document file to add the watermark.")
-        return
-
     # Notify user that the video is being downloaded
     await message.reply("Downloading video...")
-    
+
     # Download the video or document
-    file_path = await message.reply_to_message.download()
+    file_path = await message.download()
     await message.reply("Download completed. Adding watermark...")
 
-    # Generate watermark command
+    # Generate watermark position settings
     position_dict = {
         "top-right": "main_w-overlay_w-10:10",
         "top-left": "10:10",
@@ -110,7 +105,7 @@ async def add_watermark_to_video(client, message):
         "bottom-left": "10:main_h-overlay_h-10"
     }
     position = position_dict.get(watermark_position, "main_w-overlay_w-10:10")
-    output_file = f"watermarked_{message.reply_to_message.video.file_name or message.reply_to_message.document.file_name}"
+    output_file = f"watermarked_{message.video.file_name if message.video else message.document.file_name}"
 
     # Construct FFmpeg command
     ffmpeg_cmd = [
