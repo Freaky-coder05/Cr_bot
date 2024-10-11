@@ -23,7 +23,7 @@ async def start(client, message):
 async def add_watermark(client, message):
     await message.reply("Please send the text you want to use as a watermark.")
 
-@app.on_message(filters.text & ~filters.command)
+@app.on_message(filters.text & ~filters.command("add_watermark") & ~filters.command("edit_watermark"))
 async def set_watermark(client, message):
     global watermark_text
     watermark_text = message.text
