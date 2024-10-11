@@ -79,7 +79,7 @@ async def handle_callback(client, callback_query):
         watermark_width = int(data.split("_")[1])
         await callback_query.message.reply(f"Watermark width set to {watermark_width}px")
 
-# Add watermark to video
+# Add watermark to video with download and upload status
 @app.on_message(filters.command("watermark") & filters.reply)
 async def add_watermark_to_video(client, message):
     global watermark_text, watermark_opacity, watermark_position, watermark_width
@@ -92,6 +92,7 @@ async def add_watermark_to_video(client, message):
         await message.reply("Please reply to a video or document file to add the watermark.")
         return
 
+    await message.reply("Downloading video...")
     file_path = await message.reply_to_message.download()
 
     # Generate watermark command
@@ -104,6 +105,7 @@ async def add_watermark_to_video(client, message):
     position = position_dict.get(watermark_position, "main_w-overlay_w-10:10")
     output_file = f"watermarked_{message.reply_to_message.video.file_name or message.reply_to_message.document.file_name}"
 
+    # Construct FFmpeg command
     ffmpeg_cmd = [
         FFMPEG_PATH, "-i", file_path, "-vf",
         f"drawtext=text='{watermark_text}':fontcolor=white@{watermark_opacity}:fontsize={watermark_width}:x={position}",
@@ -111,8 +113,9 @@ async def add_watermark_to_video(client, message):
     ]
 
     try:
-        # Run FFmpeg command
+        # Run FFmpeg command to add watermark
         subprocess.run(ffmpeg_cmd, check=True)
+        await message.reply("Uploading watermarked video...")
         await message.reply_video(output_file, caption="Here's your watermarked video!")
     except Exception as e:
         await message.reply(f"Error while adding watermark: {str(e)}")
