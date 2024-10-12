@@ -1,76 +1,139 @@
 import os
-import subprocess
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+import ffmpeg
+from config import API_ID, API_HASH, BOT_TOKEN
 
-# Load configuration
-from config import API_ID, API_HASH, BOT_TOKEN, CRUNCHYROLL_USERNAME, CRUNCHYROLL_PASSWORD
+# Configurations
+WATERMARK_PATH = "default_watermark.png"  # Default watermark path
+WATERMARK_POS = "top-right"  # Default watermark position
+WATERMARK_WIDTH = 100  # Default watermark width in pixels
+WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
 
-# Initialize the bot
-bot = Client("crunchyroll_downloader_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Create your bot using your token from config
+app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=~BOT_TOKEN")
 
-# Start command to greet the user
+# Dictionary to hold user watermark settings
+user_watermarks = {}
+
 @bot.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("Welcome to Crunchyroll Downloader Bot! Send me the Crunchyroll URL of the anime episode to download.")
-
-# Handle Crunchyroll video download request
-@bot.on_message(filters.text & filters.private)
-async def download_video(client, message):
-    anime_url = message.text.strip()
+# Function to add watermark to video
+    await message.reply_text("Hi iam a watermark adder bot ☘️")
     
-    # Check if the message is a valid URL (basic validation)
-    if not anime_url.startswith("http"):
-        await message.reply("Please send a valid Crunchyroll URL.")
-        return
+async def add_watermark(video_path, user_id):
+    # Fetch user settings or use default
+    watermark = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
+    position = user_watermarks.get(user_id, {}).get('position', WATERMARK_POS)
+    width = user_watermarks.get(user_id, {}).get('width', WATERMARK_WIDTH)
+    opacity = user_watermarks.get(user_id, {}).get('opacity', WATERMARK_OPACITY)
 
-    # Notify user that download is starting
-    await message.reply("Starting to download the video. Please wait...")
+    output_path = f"watermarked_{os.path.basename(video_path)}"
+    
+    # FFmpeg command to add watermark
+    ffmpeg.input(video_path).output(
+        output_path,
+        vf=f"movie={watermark} [watermark]; [in][watermark] overlay={position}",
+        filter_complex=f"[0]scale=w={width}:h={-1}[scaled]",
+        video_bitrate="800k"
+    ).run()
+    
+    return output_path
 
-    # Define the output directory for downloaded videos
-    output_dir = "/path/to/downloads"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    # Call the Crunchyroll Downloader script
-    process = subprocess.Popen(
-        ['python', '/path/to/Crunchyroll-Downloader-v3/cr-dl.py', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux', '--output', output_dir],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True
-    )
-
-    # Reading the process output and sending progress updates
-    output_lines = []
-    for line in process.stdout:
-        output_lines.append(line)
-        if "Downloading" in line or "Progress" in line:
-            await message.reply(line.strip())
-
-    # Wait for the process to finish
-    process.wait()
-
-    # Check if the video has been downloaded
-    video_filename = find_video_file(output_dir)
-    if video_filename:
-        video_path = os.path.join(output_dir, video_filename)
-        
-        # Notify user and upload the video
-        await message.reply("Download complete! Uploading the video now...")
-        await client.send_video(chat_id=message.chat.id, video=video_path)
-
-        # Notify that the upload is complete
-        await message.reply("Upload complete!")
+# Command to set watermark
+@app.on_message(filters.command("set_watermark") & filters.reply)
+async def set_watermark(client, message: Message):
+    # Assuming the replied-to message contains the watermark image
+    if message.reply_to_message.photo or message.reply_to_message.document:
+        watermark_path = await message.reply_to_message.download()
+        user_watermarks[message.from_user.id] = {"path": watermark_path}
+        await message.reply("Watermark set successfully ✅")
     else:
-        await message.reply("Error: Could not download the video. Please check the URL or try again later.")
+        await message.reply("Please reply to an image or document to set it as watermark.")
 
-# Helper function to find the downloaded video file in the output directory
-def find_video_file(directory):
-    for filename in os.listdir(directory):
-        if filename.endswith(".mp4"):
-            return filename
-    return None
+# Command to edit watermark settings
+@app.on_message(filters.command("edit_watermark"))
+async def edit_watermark(client, message: Message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Position", callback_data="set_position")],
+        [InlineKeyboardButton("Width", callback_data="set_width")],
+        [InlineKeyboardButton("Opacity", callback_data="set_opacity")]
+    ])
+    await message.reply("Select the setting to edit:", reply_markup=keyboard)
+
+# Callback for editing watermark settings
+@app.on_callback_query(filters.regex("set_position|set_width|set_opacity"))
+async def on_callback_query(client, callback_query):
+    setting = callback_query.data
+
+    if setting == "set_position":
+        # Show position options
+        position_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Top-Left", callback_data="pos_top-left"),
+             InlineKeyboardButton("Top-Right", callback_data="pos_top-right")],
+            [InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom-left"),
+             InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom-right")]
+        ])
+        await callback_query.message.edit_text("Choose watermark position:", reply_markup=position_keyboard)
+
+    elif setting == "set_width":
+        # Show width adjustment options
+        width_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("50 px", callback_data="width_50"),
+             InlineKeyboardButton("100 px", callback_data="width_100")],
+            [InlineKeyboardButton("150 px", callback_data="width_150"),
+             InlineKeyboardButton("200 px", callback_data="width_200")]
+        ])
+        await callback_query.message.edit_text("Choose watermark width:", reply_markup=width_keyboard)
+
+    elif setting == "set_opacity":
+        # Show opacity adjustment options
+        opacity_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("0.2", callback_data="opacity_0.2"),
+             InlineKeyboardButton("0.5", callback_data="opacity_0.5")],
+            [InlineKeyboardButton("0.8", callback_data="opacity_0.8"),
+             InlineKeyboardButton("1.0", callback_data="opacity_1.0")]
+        ])
+        await callback_query.message.edit_text("Choose watermark opacity:", reply_markup=opacity_keyboard)
+
+# Handle watermark position, width, and opacity changes
+@app.on_callback_query(filters.regex("pos_|width_|opacity_"))
+async def adjust_watermark_settings(client, callback_query):
+    user_id = callback_query.from_user.id
+    setting = callback_query.data
+
+    if "pos_" in setting:
+        position = setting.split("_")[1]
+        user_watermarks[user_id]['position'] = position
+        await callback_query.message.edit_text(f"Watermark position set to {position}")
+    elif "width_" in setting:
+        width = int(setting.split("_")[1])
+        user_watermarks[user_id]['width'] = width
+        await callback_query.message.edit_text(f"Watermark width set to {width} px")
+    elif "opacity_" in setting:
+        opacity = float(setting.split("_")[1])
+        user_watermarks[user_id]['opacity'] = opacity
+        await callback_query.message.edit_text(f"Watermark opacity set to {opacity}")
+
+# Handling video or document uploads to add watermark
+@app.on_message(filters.video | filters.document)
+async def handle_video(client, message: Message):
+    # Start downloading the video
+    download_message = await message.reply("Downloading video...")
+    video_path = await message.download()
+
+    # Add watermark to the downloaded video
+    await download_message.edit("Adding watermark...")
+    watermarked_video_path = await add_watermark(video_path, message.from_user.id)
+
+    # Upload the watermarked video
+    await download_message.edit("Uploading watermarked video...")
+    await message.reply_video(watermarked_video_path)
+
+    # Cleanup
+    os.remove(video_path)
+    os.remove(watermarked_video_path)
 
 # Run the bot
-bot.run()
+app.run()
