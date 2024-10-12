@@ -22,6 +22,15 @@ async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot 💫✅")
     
+# Valid predefined positions and their corresponding x:y coordinates
+POSITIONS = {
+    "top-left": "10:10",
+    "top-right": "main_w-overlay_w-10:10",
+    "bottom-left": "10:main_h-overlay_h-10",
+    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
+    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
+}
+
 
 async def add_watermark(video_path, user_id):
     # Fetch user-specific watermark settings or use a default text
