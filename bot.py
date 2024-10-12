@@ -22,13 +22,25 @@ user_watermarks = {}
 async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot ☘️")
-    
+
+# Valid predefined positions and their corresponding x:y coordinates
+POSITIONS = {
+    "top-left": "10:10",
+    "top-right": "main_w-overlay_w-10:10",
+    "bottom-left": "10:main_h-overlay_h-10",
+    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
+    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
+}
+
 async def add_watermark(video_path, user_id):
     # Fetch user settings or use default
     watermark = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
-    position = user_watermarks.get(user_id, {}).get('position', "10:10")  # Use coordinates for the overlay
+    position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default to 'top-left'
     width = user_watermarks.get(user_id, {}).get('width', WATERMARK_WIDTH)
     opacity = user_watermarks.get(user_id, {}).get('opacity', WATERMARK_OPACITY)
+
+    # Convert predefined position to x:y coordinates
+    position_xy = POSITIONS.get(position, "10:10")  # Default to 10:10 if no match
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
 
@@ -36,7 +48,7 @@ async def add_watermark(video_path, user_id):
         # Run FFmpeg command
         command = [
             'ffmpeg', '-i', video_path, '-i', watermark,
-            '-filter_complex', f"[1]scale={width}:-1 [wm]; [0][wm] overlay={position}:format=auto,format=yuv420p",
+            '-filter_complex', f"[1]scale={width}:-1 [wm]; [0][wm] overlay={position_xy}:format=auto,format=yuv420p",
             '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast',
             '-c:a', 'copy', output_path
         ]
@@ -52,7 +64,6 @@ async def add_watermark(video_path, user_id):
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
-
 
 # Command to set watermark
 @app.on_message(filters.command("set_watermark") & filters.reply)
