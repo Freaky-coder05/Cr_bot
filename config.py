@@ -12,3 +12,8 @@ MODEL_NAME = "facebook/bart-large-mnli"
 
 FFMPEG_PATH = os.getenv("FFMPEG_PATH", "/usr/bin/ffmpeg")  # Default location of FFmpeg
 
+# config.py
+
+# Crunchyroll Premium Credentials
+CRUNCHYROLL_USERNAME = 'http://segunblaksley@live.com'
+CRUNCHYROLL_PASSWORD = '123456789'
