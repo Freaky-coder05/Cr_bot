@@ -23,7 +23,6 @@ async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot ☘️")
     
-
 async def add_watermark(video_path, user_id):
     # Fetch user settings or use default
     watermark = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
@@ -53,6 +52,7 @@ async def add_watermark(video_path, user_id):
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
+
 
 # Command to set watermark
 @app.on_message(filters.command("set_watermark") & filters.reply)
@@ -140,13 +140,16 @@ async def handle_video(client, message: Message):
     await download_message.edit("Adding watermark...")
     watermarked_video_path = await add_watermark(video_path, message.from_user.id)
 
-    # Upload the watermarked video
-    await download_message.edit("Uploading watermarked video...")
-    await message.reply_video(watermarked_video_path)
+    if watermarked_video_path is None:
+        await download_message.edit("❌ Failed to add watermark. Please try again.")
+    else:
+        # Upload the watermarked video
+        await download_message.edit("Uploading watermarked video...")
+        await message.reply_video(watermarked_video_path)
 
-    # Cleanup
-    os.remove(video_path)
-    os.remove(watermarked_video_path)
+        # Cleanup
+        os.remove(video_path)
+        os.remove(watermarked_video_path)
 
 # Run the bot
 app.run()
