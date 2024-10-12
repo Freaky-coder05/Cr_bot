@@ -2,68 +2,75 @@ import os
 import subprocess
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from config import CRUNCHYROLL_USERNAME, CRUNCHYROLL_PASSWORD, BOT_TOKEN, API_HASH, API_ID
-from time import sleep
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+# Load configuration
+from config import API_ID, API_HASH, BOT_TOKEN, CRUNCHYROLL_USERNAME, CRUNCHYROLL_PASSWORD
 
-# Initialize the Pyrogram Client
-app = Client("crunchyroll_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Initialize the bot
+bot = Client("crunchyroll_downloader_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-def download_progress(process: subprocess.Popen, message: Message):
-    """Simulate a progress indicator for the download process and send updates to Telegram."""
-    while True:
-        line = process.stdout.readline()
-        if not line:
-            break
-        if 'Duration' in line or 'time=' in line:
-            # Example: Parse and display download progress here
-            message.edit_text(f"Downloading: {line.strip()}")
-            sleep(1)  # Simulate delay for updates
+# Start command to greet the user
+@bot.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply("Welcome to Crunchyroll Downloader Bot! Send me the Crunchyroll URL of the anime episode to download.")
 
-async def upload_progress(message: Message):
-    """Simulate upload progress and update the Telegram message."""
-    for i in range(1, 101, 10):
-        await message.edit_text(f"Uploading: {i}% complete")
-        await asyncio.sleep(0.5)  # Simulating delay for upload progress
-
-@app.on_message(filters.command('start'))
-async def start(_, message: Message):
-    await message.reply_text("Welcome to the Crunchyroll Downloader Bot!\nUse /download <anime_url> to download a Crunchyroll video.")
-
-@app.on_message(filters.command('download'))
-async def download_video(_, message: Message):
-    # Extract URL from the message
-    if len(message.command) < 2:
-        await message.reply_text("Please provide the anime URL. Usage: /download <anime_url>")
-        return
+# Handle Crunchyroll video download request
+@bot.on_message(filters.text & filters.private)
+async def download_video(client, message):
+    anime_url = message.text.strip()
     
-    anime_url = message.command[1]
+    # Check if the message is a valid URL (basic validation)
+    if not anime_url.startswith("http"):
+        await message.reply("Please send a valid Crunchyroll URL.")
+        return
 
-    try:
-        msg = await message.reply_text(f"Starting DRM download for {anime_url}...")
+    # Notify user that download is starting
+    await message.reply("Starting to download the video. Please wait...")
 
-        # Download video using Crunchyroll Downloader v3 (drm-protected video)
-        process = subprocess.Popen(
-        ['python', '/path/to/Crunchyroll-Downloader-v3/cr-dl.py', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux'],
+    # Define the output directory for downloaded videos
+    output_dir = "/path/to/downloads"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Call the Crunchyroll Downloader script
+    process = subprocess.Popen(
+        ['python', '/path/to/Crunchyroll-Downloader-v3/cr-dl.py', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux', '--output', output_dir],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         universal_newlines=True
-            )
+    )
 
-        # Monitor download progress
-        await asyncio.to_thread(download_progress, process, msg)
+    # Reading the process output and sending progress updates
+    output_lines = []
+    for line in process.stdout:
+        output_lines.append(line)
+        if "Downloading" in line or "Progress" in line:
+            await message.reply(line.strip())
 
-        # Simulate upload progress after download completes
-        await msg.edit_text("Download completed. Starting upload...")
-        await upload_progress(msg)
+    # Wait for the process to finish
+    process.wait()
 
-        # After download, upload the file to the user (this is simulated here, adjust with actual file path)
-        downloaded_file = f'{anime_url.split("/")[-1]}.mp4'  # Assume the video file is saved with this name
-        await app.send_video(message.chat.id, downloaded_file, caption=f"Downloaded successfully from {anime_url}")
+    # Check if the video has been downloaded
+    video_filename = find_video_file(output_dir)
+    if video_filename:
+        video_path = os.path.join(output_dir, video_filename)
+        
+        # Notify user and upload the video
+        await message.reply("Download complete! Uploading the video now...")
+        await client.send_video(chat_id=message.chat.id, video=video_path)
 
-    except Exception as e:
-        await message.reply_text(f"Error: {str(e)}")
+        # Notify that the upload is complete
+        await message.reply("Upload complete!")
+    else:
+        await message.reply("Error: Could not download the video. Please check the URL or try again later.")
 
-if __name__ == '__main__':
-    app.run()
+# Helper function to find the downloaded video file in the output directory
+def find_video_file(directory):
+    for filename in os.listdir(directory):
+        if filename.endswith(".mp4"):
+            return filename
+    return None
+
+# Run the bot
+bot.run()
