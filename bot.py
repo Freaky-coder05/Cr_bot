@@ -45,11 +45,11 @@ async def download_video(_, message: Message):
 
         # Download video using Crunchyroll Downloader v3 (drm-protected video)
         process = subprocess.Popen(
-            ['cr-dl', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True
-        )
+        ['python', '/path/to/Crunchyroll-Downloader-v3/cr-dl.py', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux'],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True
+            )
 
         # Monitor download progress
         await asyncio.to_thread(download_progress, process, msg)
