@@ -22,45 +22,84 @@ async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot ☘️")
     
+
 async def add_watermark(video_path, user_id):
-    # Fetch user settings or use default
-    watermark = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
-    position = user_watermarks.get(user_id, {}).get('position', WATERMARK_POS)
-    width = user_watermarks.get(user_id, {}).get('width', WATERMARK_WIDTH)
-    opacity = user_watermarks.get(user_id, {}).get('opacity', WATERMARK_OPACITY)
+    # Fetch user-specific watermark settings or use a default text
+    watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
+
+    # Position and other settings can also be customized per user
+    position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
+    position_xy = POSITIONS.get(position, "10:10")  # Default to 10:10 if no match
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
-    
-    # FFmpeg command to add watermark
-    ffmpeg.input(video_path).output(
-        output_path,
-        vf=f"movie={watermark} [watermark]; [in][watermark] overlay={position}",
-        filter_complex=f"[0]scale=w={width}:h={-1}[scaled]",
-        video_bitrate="800k"
-    ).run()
-    
-    return output_path
 
-# Command to set watermark
+    try:
+        # Run FFmpeg command to add text watermark
+        command = [
+            'ffmpeg', '-i', video_path,
+            '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize=24:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}",
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast',
+            '-c:a', 'copy', output_path
+        ]
+
+        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {process.stderr.decode()}")
+
+        return output_path
+
+    except Exception as e:
+        print(f"Error adding watermark: {e}")
+        return None
+
+# Set watermark by replying to a text message
 @app.on_message(filters.command("set_watermark") & filters.reply)
-async def set_watermark(client, message: Message):
-    # Assuming the replied-to message contains the watermark image
-    if message.reply_to_message.photo or message.reply_to_message.document:
-        watermark_path = await message.reply_to_message.download()
-        user_watermarks[message.from_user.id] = {"path": watermark_path}
-        await message.reply("Watermark set successfully ✅")
-    else:
-        await message.reply("Please reply to an image or document to set it as watermark.")
+async def set_watermark(client, message):
+    if message.reply_to_message and message.reply_to_message.text:
+        watermark_text = message.reply_to_message.text
+        user_id = message.from_user.id
 
+        # Save the watermark text for the user
+        user_watermarks[user_id] = {'text': watermark_text}
+
+        await message.reply_text(f"Watermark set successfully ✅\nWatermark: {watermark_text}")
+    else:
+        await message.reply_text("Please reply to a text message to set the watermark.")
+        
 # Command to edit watermark settings
 @app.on_message(filters.command("edit_watermark"))
-async def edit_watermark(client, message: Message):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Position", callback_data="set_position")],
-        [InlineKeyboardButton("Width", callback_data="set_width")],
-        [InlineKeyboardButton("Opacity", callback_data="set_opacity")]
-    ])
-    await message.reply("Select the setting to edit:", reply_markup=keyboard)
+async def edit_watermark(client, message):
+    user_id = message.from_user.id
+
+    # Create inline buttons for adjusting watermark position, size, and transparency
+    buttons = [
+        [
+            InlineKeyboardButton("Top-Left", callback_data="pos_top_left"),
+            InlineKeyboardButton("Top-Right", callback_data="pos_top_right")
+        ],
+        [
+            InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom_left"),
+            InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom_right")
+        ],
+        [InlineKeyboardButton("Center", callback_data="pos_center")]
+    ]
+
+    # Send a message with the buttons
+    await message.reply_text("Select watermark position:", reply_markup=InlineKeyboardMarkup(buttons))
+
+# Handle callback queries to update watermark settings
+@app.on_callback_query(filters.regex("^pos_"))
+async def change_watermark_position(client, callback_query):
+    position = callback_query.data.split("_")[1].replace("-", "_")
+    user_id = callback_query.from_user.id
+
+    if user_id in user_watermarks:
+        user_watermarks[user_id]['position'] = position
+    else:
+        user_watermarks[user_id] = {'position': position}
+
+    await callback_query.answer(f"Watermark position updated to {position.replace('_', ' ').title()} ✅")
 
 # Callback for editing watermark settings
 @app.on_callback_query(filters.regex("set_position|set_width|set_opacity"))
