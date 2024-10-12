@@ -4,5 +4,5 @@ flask==2.2.5
 ffmpeg-python==0.2.0
 python-dotenv
 asyncio==3.4.3
-subprocess==3.2.2
+subprocess
 crunchyroll-downloader-v3==3.24.0
