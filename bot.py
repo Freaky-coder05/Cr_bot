@@ -12,7 +12,7 @@ WATERMARK_WIDTH = 100  # Default watermark width in pixels
 WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
 
 # Create your bot using your token from config
-app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=~BOT_TOKEN")
+app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=~BOT_TOKEN)
 
 # Dictionary to hold user watermark settings
 user_watermarks = {}
