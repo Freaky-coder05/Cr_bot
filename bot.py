@@ -20,7 +20,7 @@ user_watermarks = {}
 @app.on_message(filters.command("start"))
 async def start(client, message):
 # Function to add watermark to video
-    await message.reply_text("Hi iam a watermark adder bot ☘️")
+    await message.reply_text("Hi iam a watermark adder bot 💫✅")
     
 
 async def add_watermark(video_path, user_id):
