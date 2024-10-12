@@ -17,7 +17,7 @@ app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=~BOT_T
 # Dictionary to hold user watermark settings
 user_watermarks = {}
 
-@bot.on_message(filters.command("start"))
+@app.on_message(filters.command("start"))
 async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot ☘️")
