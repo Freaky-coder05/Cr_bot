@@ -3,6 +3,7 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 import ffmpeg
+import subprocess
 from config import API_ID, API_HASH, BOT_TOKEN
 
 # Configurations
@@ -22,24 +23,36 @@ async def start(client, message):
 # Function to add watermark to video
     await message.reply_text("Hi iam a watermark adder bot ☘️")
     
+
 async def add_watermark(video_path, user_id):
     # Fetch user settings or use default
     watermark = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
-    position = user_watermarks.get(user_id, {}).get('position', WATERMARK_POS)
+    position = user_watermarks.get(user_id, {}).get('position', "10:10")  # Use coordinates for the overlay
     width = user_watermarks.get(user_id, {}).get('width', WATERMARK_WIDTH)
     opacity = user_watermarks.get(user_id, {}).get('opacity', WATERMARK_OPACITY)
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
-    
-    # FFmpeg command to add watermark
-    ffmpeg.input(video_path).output(
-        output_path,
-        vf=f"movie={watermark} [watermark]; [in][watermark] overlay={position}",
-        filter_complex=f"[0]scale=w={width}:h={-1}[scaled]",
-        video_bitrate="800k"
-    ).run()
-    
-    return output_path
+
+    try:
+        # Run FFmpeg command
+        command = [
+            'ffmpeg', '-i', video_path, '-i', watermark,
+            '-filter_complex', f"[1]scale={width}:-1 [wm]; [0][wm] overlay={position}:format=auto,format=yuv420p",
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast',
+            '-c:a', 'copy', output_path
+        ]
+
+        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Check if the process was successful
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {process.stderr.decode()}")
+        
+        return output_path
+
+    except Exception as e:
+        print(f"Error adding watermark: {e}")
+        return None
 
 # Command to set watermark
 @app.on_message(filters.command("set_watermark") & filters.reply)
