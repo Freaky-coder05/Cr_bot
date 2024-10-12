@@ -1,133 +1,69 @@
 import os
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import subprocess
-from config import API_ID, API_HASH, BOT_TOKEN, FFMPEG_PATH
+import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from config import CRUNCHYROLL_USERNAME, CRUNCHYROLL_PASSWORD, BOT_TOKEN, API_HASH, API_ID
+from time import sleep
 
-# Create a Pyrogram client
-app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Global watermark settings
-watermark_text = None
-watermark_opacity = 1.0  # Full visibility
-watermark_position = "top-right"
-watermark_width = 100
+# Initialize the Pyrogram Client
+app = Client("crunchyroll_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Start message
-@app.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("Welcome to the Video Watermark Adder bot! Use /add_watermark to set the watermark text.")
+def download_progress(process: subprocess.Popen, message: Message):
+    """Simulate a progress indicator for the download process and send updates to Telegram."""
+    while True:
+        line = process.stdout.readline()
+        if not line:
+            break
+        if 'Duration' in line or 'time=' in line:
+            # Example: Parse and display download progress here
+            message.edit_text(f"Downloading: {line.strip()}")
+            sleep(1)  # Simulate delay for updates
 
-# Add watermark command to set watermark text
-@app.on_message(filters.command("add_watermark"))
-async def add_watermark(client, message):
-    await message.reply("Please send the text you want to use as a watermark.")
+async def upload_progress(message: Message):
+    """Simulate upload progress and update the Telegram message."""
+    for i in range(1, 101, 10):
+        await message.edit_text(f"Uploading: {i}% complete")
+        await asyncio.sleep(0.5)  # Simulating delay for upload progress
 
-# Handle setting the watermark text
-@app.on_message(filters.text & ~filters.command())
-async def set_watermark(client, message):
-    global watermark_text
-    watermark_text = message.text.strip()
-    await message.reply(f"Watermark text set to: {watermark_text}. You can now send a video, and I will add the watermark automatically.")
+@app.on_message(filters.command('start'))
+async def start(_, message: Message):
+    await message.reply_text("Welcome to the Crunchyroll Downloader Bot!\nUse /download <anime_url> to download a Crunchyroll video.")
 
-# Edit watermark settings using inline buttons
-@app.on_message(filters.command("edit_watermark"))
-async def edit_watermark(client, message):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Transparency", callback_data="set_transparency")],
-        [InlineKeyboardButton("Position", callback_data="set_position")],
-        [InlineKeyboardButton("Width", callback_data="set_width")]
-    ])
-    await message.reply("Adjust watermark settings:", reply_markup=keyboard)
-
-@app.on_callback_query()
-async def handle_callback(client, callback_query):
-    global watermark_opacity, watermark_position, watermark_width
-    data = callback_query.data
-
-    if data == "set_transparency":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("100%", callback_data="opacity_1.0")],
-            [InlineKeyboardButton("75%", callback_data="opacity_0.75")],
-            [InlineKeyboardButton("50%", callback_data="opacity_0.5")],
-            [InlineKeyboardButton("25%", callback_data="opacity_0.25")],
-        ])
-        await callback_query.message.reply("Choose watermark transparency:", reply_markup=keyboard)
-    elif data.startswith("opacity_"):
-        watermark_opacity = float(data.split("_")[1])
-        await callback_query.message.reply(f"Transparency set to {int(watermark_opacity * 100)}%")
-
-    elif data == "set_position":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Top Right", callback_data="position_top-right")],
-            [InlineKeyboardButton("Top Left", callback_data="position_top-left")],
-            [InlineKeyboardButton("Bottom Right", callback_data="position_bottom-right")],
-            [InlineKeyboardButton("Bottom Left", callback_data="position_bottom-left")],
-        ])
-        await callback_query.message.reply("Choose watermark position:", reply_markup=keyboard)
-    elif data.startswith("position_"):
-        watermark_position = data.split("_")[1]
-        await callback_query.message.reply(f"Position set to {watermark_position.replace('-', ' ').title()}")
-
-    elif data == "set_width":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("100px", callback_data="width_100")],
-            [InlineKeyboardButton("200px", callback_data="width_200")],
-            [InlineKeyboardButton("300px", callback_data="width_300")],
-        ])
-        await callback_query.message.reply("Choose watermark width:", reply_markup=keyboard)
-    elif data.startswith("width_"):
-        watermark_width = int(data.split("_")[1])
-        await callback_query.message.reply(f"Watermark width set to {watermark_width}px")
-
-# Automatically process video or document files for watermarking
-@app.on_message(filters.video | filters.document)
-async def watermark_video(client, message):
-    global watermark_text, watermark_opacity, watermark_position, watermark_width
-
-    # Ensure watermark text is set
-    if not watermark_text:
-        await message.reply("Please set a watermark text first using /add_watermark.")
+@app.on_message(filters.command('download'))
+async def download_video(_, message: Message):
+    # Extract URL from the message
+    if len(message.command) < 2:
+        await message.reply_text("Please provide the anime URL. Usage: /download <anime_url>")
         return
-
-    await message.reply("Downloading video...")
-
-    # Download the video or document
-    file_path = await message.download()
-    await message.reply("Download completed. Adding watermark...")
-
-    # Generate watermark position settings
-    position_dict = {
-        "top-right": "main_w-overlay_w-10:10",
-        "top-left": "10:10",
-        "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
-        "bottom-left": "10:main_h-overlay_h-10"
-    }
-    position = position_dict.get(watermark_position, "main_w-overlay_w-10:10")
-    output_file = f"watermarked_{message.video.file_name if message.video else message.document.file_name}"
-
-    # Construct FFmpeg command
-    ffmpeg_cmd = [
-        FFMPEG_PATH, "-i", file_path, "-vf",
-        f"drawtext=text='{watermark_text}':fontcolor=white@{watermark_opacity}:fontsize={watermark_width}:x={position}",
-        output_file
-    ]
+    
+    anime_url = message.command[1]
 
     try:
-        # Run FFmpeg command to add watermark
-        subprocess.run(ffmpeg_cmd, check=True)
-        await message.reply("Watermark added successfully! Uploading video...")
-        
-        # Upload the watermarked video
-        await message.reply_video(output_file, caption="Here's your watermarked video!")
-    except Exception as e:
-        await message.reply(f"Error while adding watermark: {str(e)}")
-    finally:
-        # Clean up
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        if os.path.exists(output_file):
-            os.remove(output_file)
+        msg = await message.reply_text(f"Starting DRM download for {anime_url}...")
 
-if __name__ == "__main__":
+        # Download video using Crunchyroll Downloader v3 (drm-protected video)
+        process = subprocess.Popen(
+            ['cr-dl', anime_url, '-u', CRUNCHYROLL_USERNAME, '-p', CRUNCHYROLL_PASSWORD, '--no-mux'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+
+        # Monitor download progress
+        await asyncio.to_thread(download_progress, process, msg)
+
+        # Simulate upload progress after download completes
+        await msg.edit_text("Download completed. Starting upload...")
+        await upload_progress(msg)
+
+        # After download, upload the file to the user (this is simulated here, adjust with actual file path)
+        downloaded_file = f'{anime_url.split("/")[-1]}.mp4'  # Assume the video file is saved with this name
+        await app.send_video(message.chat.id, downloaded_file, caption=f"Downloaded successfully from {anime_url}")
+
+    except Exception as e:
+        await message.reply_text(f"Error: {str(e)}")
+
+if __name__ == '__main__':
     app.run()
