@@ -4,4 +4,4 @@ flask==2.2.5
 ffmpeg-python==0.2.0
 python-dotenv
 asyncio==3.4.3
-crunchyroll-downloader-v3==3.24.0
+crunchyroll-downloader-v3==1.3.1
