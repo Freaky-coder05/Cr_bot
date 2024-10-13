@@ -36,7 +36,7 @@ async def add_watermark(video_path, user_id, progress_message):
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
     position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 50)  # Default width in pixels
+    width = user_watermarks.get(user_id, {}).get('width', 15)  # Default width in pixels
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
@@ -44,7 +44,7 @@ async def add_watermark(video_path, user_id, progress_message):
     progress = 0  # Initialize progress
 
     try:
-        # Start the FFmpeg process
+        # Start the FFmpeg process to add watermark
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
@@ -55,7 +55,7 @@ async def add_watermark(video_path, user_id, progress_message):
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         start_time = time.time()  # Start time to calculate elapsed and remaining time
 
-        # Mock progress loop (since FFmpeg doesn't provide real-time progress)
+        # Mock progress loop for watermarking
         for i in range(total_steps):
             await asyncio.sleep(2)  # Simulate time taken per step
             progress += 1
@@ -63,18 +63,66 @@ async def add_watermark(video_path, user_id, progress_message):
             estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
             progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
 
-            await progress_message.edit_text(f"Processing... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
+            await progress_message.edit_text(f"Adding watermark... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
 
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
             raise Exception(f"FFmpeg error: {stderr.decode()}")
 
-        return output_path
+        # Proceed to encoding step after watermarking
+        await progress_message.edit_text("Watermark added successfully! Starting encoding...")
+
+        # Call encoding function with a separate progress bar
+        encoded_video_path = await encode_video(output_path, progress_message)
+
+        if encoded_video_path is None:
+            return None
+
+        return encoded_video_path
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
+
+
+async def encode_video(watermarked_path, progress_message):
+    encoded_output_path = f"encoded_{os.path.basename(watermarked_path)}"
+    total_steps = 10  # Define total steps for encoding progress bar
+    progress = 0  # Initialize progress
+
+    try:
+        # Simulate FFmpeg encoding command
+        command = [
+            'ffmpeg', '-i', watermarked_path,
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
+            '-c:a', 'aac', '-strict', 'experimental', encoded_output_path
+        ]
+
+        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        start_time = time.time()
+
+        # Mock progress loop for encoding
+        for i in range(total_steps):
+            await asyncio.sleep(2)  # Simulate time taken per step
+            progress += 1
+            elapsed_time = time.time() - start_time
+            estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
+            progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
+
+            await progress_message.edit_text(f"Encoding... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg encoding error: {stderr.decode()}")
+
+        return encoded_output_path
+
+    except Exception as e:
+        print(f"Error during encoding: {e}")
+        return None
+
 
 # Command to edit watermark settings
 @app.on_message(filters.command("edit_watermark"))
@@ -96,80 +144,31 @@ async def edit_watermark(client, message):
 
     await message.reply_text("Select watermark position:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# Callback for editing watermark settings
-@app.on_callback_query(filters.regex("^pos_"))
-async def change_watermark_position(client, callback_query):
-    position = callback_query.data.split("_")[1].replace("-", "_")
-    user_id = callback_query.from_user.id
-
-    if user_id in user_watermarks:
-        user_watermarks[user_id]['position'] = position
-    else:
-        user_watermarks[user_id] = {'position': position}
-
-    await callback_query.answer(f"Watermark position updated to {position.replace('_', ' ').title()} ✅")
-
-@app.on_callback_query(filters.regex("set_width|set_opacity"))
-async def on_callback_query(client, callback_query):
-    setting = callback_query.data
-
-    if setting == "set_width":
-        width_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("50 px", callback_data="width_50"),
-             InlineKeyboardButton("100 px", callback_data="width_100")],
-            [InlineKeyboardButton("150 px", callback_data="width_150"),
-             InlineKeyboardButton("200 px", callback_data="width_200")]
-        ])
-        await callback_query.message.edit_text("Choose watermark width:", reply_markup=width_keyboard)
-
-    elif setting == "set_opacity":
-        opacity_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("0.2", callback_data="opacity_0.2"),
-             InlineKeyboardButton("0.5", callback_data="opacity_0.5")],
-            [InlineKeyboardButton("0.8", callback_data="opacity_0.8"),
-             InlineKeyboardButton("1.0", callback_data="opacity_1.0")]
-        ])
-        await callback_query.message.edit_text("Choose watermark opacity:", reply_markup=opacity_keyboard)
-
-# Handle watermark position, width, and opacity changes
-@app.on_callback_query(filters.regex("width_|opacity_"))
-async def adjust_watermark_settings(client, callback_query):
-    user_id = callback_query.from_user.id
-    setting = callback_query.data
-
-    if "width_" in setting:
-        width = int(setting.split("_")[1])
-        user_watermarks[user_id]['width'] = width
-        await callback_query.message.edit_text(f"Watermark width set to {width} px")
-    elif "opacity_" in setting:
-        opacity = float(setting.split("_")[1])
-        user_watermarks[user_id]['opacity'] = opacity
-        await callback_query.message.edit_text(f"Watermark opacity set to {opacity}")
-
-# Handling video or document uploads to add watermark
+# Handle video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
     download_message = await message.reply("Downloading video...")
     video_path = await message.download()
 
-    progress_message = await message.reply("Adding watermark...")
+    progress_message = await message.reply("Processing...")
 
-    watermarked_video_path = await add_watermark(video_path, message.from_user.id, progress_message)
+    # Add watermark and encode the video
+    final_video_path = await add_watermark(video_path, message.from_user.id, progress_message)
 
-    if watermarked_video_path is None:
-        await progress_message.edit("❌ Failed to add watermark. Please try again.")
+    if final_video_path is None:
+        await progress_message.edit("❌ Failed to add watermark and encode. Please try again.")
     else:
         # Update the message to indicate the start of the upload process
-        await progress_message.edit("Watermark added successfully! Uploading the watermarked video...")
+        await progress_message.edit("Encoding completed! Uploading the video...")
 
-        # Upload the watermarked video
-        await message.reply_video(watermarked_video_path)
+        # Upload the final encoded video
+        await message.reply_video(final_video_path)
 
         # Clean up the files
         os.remove(video_path)
-        os.remove(watermarked_video_path)
+        os.remove(final_video_path)
 
         # Edit the message to show upload is complete
-        await progress_message.edit("✅ Watermarked video uploaded successfully.")
+        await progress_message.edit("✅ Video uploaded successfully.")
 
 app.run()
