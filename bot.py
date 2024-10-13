@@ -1,22 +1,15 @@
 import os
-import asyncio
+import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-import subprocess
 from config import API_ID, API_HASH, BOT_TOKEN
 
 # Configurations
-WATERMARK_PATH = "default_watermark.png"  # Default watermark image path
-DEFAULT_WATERMARK_TEXT = "Anime_Warrior_Tamil"  # Default watermark text
-POSITIONS = {
-    "top-left": "10:10",
-    "top-right": "main_w-overlay_w-10:10",
-    "bottom-left": "10:main_h-overlay_h-10",
-    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
-    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
-}
+WATERMARK_PATH = "default_watermark.png"  # Default watermark path
+WATERMARK_WIDTH = 100  # Default watermark width in pixels
+WATERMARK_OPACITY = 0.5  # Default watermark opacity
 
-# Create your bot
+# Create your bot using your token from config
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Dictionary to hold user watermark settings
@@ -26,31 +19,38 @@ user_watermarks = {}
 async def start(client, message):
     await message.reply_text("Hi, I am a watermark adder bot ☘️")
 
-# Function to add watermark
-async def add_watermark(video_path, user_id):
-    user_settings = user_watermarks.get(user_id, {})
-    watermark_text = user_settings.get('text', DEFAULT_WATERMARK_TEXT)
-    position = user_settings.get('position', 'top-left')
-    width = user_settings.get('width', 100)
-    opacity = user_settings.get('opacity', 0.5)
+# Valid positions
+POSITIONS = {
+    "top-left": "10:10",
+    "top-right": "main_w-overlay_w-10:10",
+    "bottom-left": "10:main_h-overlay_h-10",
+    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
+    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
+}
 
-    position_xy = POSITIONS.get(position, "10:10")
+# Function to add watermark to video
+def add_watermark(video_path, user_id):
+    # Get user-specific settings, or use defaults
+    watermark_path = user_watermarks.get(user_id, {}).get('path', WATERMARK_PATH)
+    width = user_watermarks.get(user_id, {}).get('width', WATERMARK_WIDTH)
+    opacity = user_watermarks.get(user_id, {}).get('opacity', WATERMARK_OPACITY)
+    position = user_watermarks.get(user_id, {}).get('position', "top-left")
+
     output_path = f"watermarked_{os.path.basename(video_path)}"
+    position_xy = POSITIONS.get(position, "10:10")
 
     try:
-        # Use FFmpeg to add the watermark asynchronously
+        # Run FFmpeg command to add image watermark
         command = [
             'ffmpeg', '-i', video_path,
-            '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize=24:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}",
+            '-i', watermark_path,
+            '-filter_complex',
+            f"[1]scale={width}:-1[wm];[0][wm]overlay={position_xy}:format=auto:alpha={opacity}",
             '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast',
             '-c:a', 'copy', output_path
         ]
 
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        await process.communicate()
-
-        if process.returncode != 0:
-            raise Exception("Error during FFmpeg execution.")
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         return output_path
 
@@ -58,27 +58,28 @@ async def add_watermark(video_path, user_id):
         print(f"Error adding watermark: {e}")
         return None
 
-# Adjust watermark settings
+# Set watermark settings (position, size, transparency)
 @app.on_message(filters.command("edit_watermark"))
 async def edit_watermark(client, message):
     user_id = message.from_user.id
 
-    # Inline keyboard buttons for editing watermark settings
     buttons = [
-        [InlineKeyboardButton("Set Position", callback_data="set_position")],
-        [InlineKeyboardButton("Set Width", callback_data="set_width")],
-        [InlineKeyboardButton("Set Opacity", callback_data="set_opacity")]
+        [
+            InlineKeyboardButton("Position", callback_data="edit_position"),
+            InlineKeyboardButton("Size", callback_data="edit_size"),
+            InlineKeyboardButton("Transparency", callback_data="edit_opacity"),
+        ]
     ]
 
-    await message.reply_text("Select an option to edit watermark settings:", reply_markup=InlineKeyboardMarkup(buttons))
+    await message.reply_text("Edit watermark settings:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# Handling the callback for settings
-@app.on_callback_query(filters.regex("set_position|set_width|set_opacity"))
-async def on_callback_query(client, callback_query):
-    setting = callback_query.data
+# Callback for editing watermark settings
+@app.on_callback_query(filters.regex("edit_(position|size|opacity)"))
+async def on_edit_settings(client, callback_query):
+    setting = callback_query.data.split("_")[1]
 
-    if setting == "set_position":
-        # Show position options
+    if setting == "position":
+        # Provide position options
         position_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Top-Left", callback_data="pos_top-left"),
              InlineKeyboardButton("Top-Right", callback_data="pos_top-right")],
@@ -88,18 +89,18 @@ async def on_callback_query(client, callback_query):
         ])
         await callback_query.message.edit_text("Choose watermark position:", reply_markup=position_keyboard)
 
-    elif setting == "set_width":
-        # Show width adjustment options
-        width_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("50 px", callback_data="width_50"),
-             InlineKeyboardButton("100 px", callback_data="width_100")],
-            [InlineKeyboardButton("150 px", callback_data="width_150"),
-             InlineKeyboardButton("200 px", callback_data="width_200")]
+    elif setting == "size":
+        # Provide size options
+        size_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("50px", callback_data="size_50"),
+             InlineKeyboardButton("100px", callback_data="size_100")],
+            [InlineKeyboardButton("150px", callback_data="size_150"),
+             InlineKeyboardButton("200px", callback_data="size_200")]
         ])
-        await callback_query.message.edit_text("Choose watermark width:", reply_markup=width_keyboard)
+        await callback_query.message.edit_text("Choose watermark size:", reply_markup=size_keyboard)
 
-    elif setting == "set_opacity":
-        # Show opacity adjustment options
+    elif setting == "opacity":
+        # Provide opacity options
         opacity_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("0.2", callback_data="opacity_0.2"),
              InlineKeyboardButton("0.5", callback_data="opacity_0.5")],
@@ -108,27 +109,26 @@ async def on_callback_query(client, callback_query):
         ])
         await callback_query.message.edit_text("Choose watermark opacity:", reply_markup=opacity_keyboard)
 
-# Handle watermark position, width, and opacity changes
-@app.on_callback_query(filters.regex("pos_|width_|opacity_"))
+# Handle position, size, and opacity callbacks
+@app.on_callback_query(filters.regex("pos_|size_|opacity_"))
 async def adjust_watermark_settings(client, callback_query):
     user_id = callback_query.from_user.id
-    setting = callback_query.data
+    data = callback_query.data
 
-    if "pos_" in setting:
-        position = setting.split("_")[1]
-        user_watermarks[user_id] = user_watermarks.get(user_id, {})
+    if data.startswith("pos_"):
+        position = data.split("_")[1]
         user_watermarks[user_id]['position'] = position
-        await callback_query.message.edit_text(f"Watermark position set to {position}")
+        await callback_query.message.edit_text(f"Position set to {position}")
 
-    elif "width_" in setting:
-        width = int(setting.split("_")[1])
-        user_watermarks[user_id]['width'] = width
-        await callback_query.message.edit_text(f"Watermark width set to {width} px")
+    elif data.startswith("size_"):
+        size = int(data.split("_")[1])
+        user_watermarks[user_id]['width'] = size
+        await callback_query.message.edit_text(f"Watermark size set to {size}px")
 
-    elif "opacity_" in setting:
-        opacity = float(setting.split("_")[1])
+    elif data.startswith("opacity_"):
+        opacity = float(data.split("_")[1])
         user_watermarks[user_id]['opacity'] = opacity
-        await callback_query.message.edit_text(f"Watermark opacity set to {opacity}")
+        await callback_query.message.edit_text(f"Opacity set to {opacity}")
 
 # Handling video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
@@ -139,7 +139,7 @@ async def handle_video(client, message: Message):
 
     # Add watermark to the downloaded video
     await download_message.edit("Adding watermark...")
-    watermarked_video_path = await add_watermark(video_path, message.from_user.id)
+    watermarked_video_path = add_watermark(video_path, message.from_user.id)
 
     if watermarked_video_path is None:
         await download_message.edit("❌ Failed to add watermark. Please try again.")
