@@ -97,7 +97,7 @@ async def add_watermark(video_path, user_id, progress_message):
                 estimated_time_left = (video_duration - current_time) / 100  # Simple estimation
                 progress_bar = "⬢" * (progress // 10) + "⬡" * (10 - (progress // 10))
 
-                await progress_message.edit_text(f"Adding watermark... {progress_bar} {progress}%\nEstimated time left: {int(estimated_time_left)} seconds")
+                await progress_message.reply_text(f"Adding watermark... {progress_bar} {progress}%\nEstimated time left: {int(estimated_time_left)} seconds")
 
         stdout, stderr = await process.communicate()
 
@@ -150,7 +150,7 @@ async def encode_video(watermarked_path, progress_message, video_duration):
                 estimated_time_left = (video_duration - current_time) / 100  # Simple estimation
                 progress_bar = "⬢" * (progress // 10) + "⬡" * (10 - (progress // 10))
 
-                await progress_message.edit_text(f"Encoding... {progress_bar} {progress}%\nEstimated time left: {int(estimated_time_left)} seconds")
+                await progress_message.reply_text(f"Encoding... {progress_bar} {progress}%\nEstimated time left: {int(estimated_time_left)} seconds")
 
         stdout, stderr = await process.communicate()
 
