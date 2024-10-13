@@ -36,7 +36,7 @@ async def add_watermark(video_path, user_id, progress_message):
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
     position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 15)  # Default width in pixels
+    width = user_watermarks.get(user_id, {}).get('width', 50)  # Default width in pixels
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
@@ -159,10 +159,17 @@ async def handle_video(client, message: Message):
     if watermarked_video_path is None:
         await progress_message.edit("❌ Failed to add watermark. Please try again.")
     else:
-        await progress_message.edit("Uploading watermarked video...")
+        # Update the message to indicate the start of the upload process
+        await progress_message.edit("Watermark added successfully! Uploading the watermarked video...")
+
+        # Upload the watermarked video
         await message.reply_video(watermarked_video_path)
 
+        # Clean up the files
         os.remove(video_path)
         os.remove(watermarked_video_path)
+
+        # Edit the message to show upload is complete
+        await progress_message.edit("✅ Watermarked video uploaded successfully.")
 
 app.run()
