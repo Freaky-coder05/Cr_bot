@@ -3,11 +3,12 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 import ffmpeg
+import subprocess
 from config import API_ID, API_HASH, BOT_TOKEN
 
 # Configurations
 WATERMARK_PATH = "default_watermark.png"  # Default watermark path
-WATERMARK_POS = "top-right"  # Default watermark position
+WATERMARK_POS = "top-left"  # Default watermark position
 WATERMARK_WIDTH = 100  # Default watermark width in pixels
 WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
 
@@ -20,8 +21,8 @@ user_watermarks = {}
 @app.on_message(filters.command("start"))
 async def start(client, message):
 # Function to add watermark to video
-    await message.reply_text("Hi iam a watermark adder bot 💫✅")
-    
+    await message.reply_text("Hi iam a watermark adder bot ☘️")
+
 # Valid predefined positions and their corresponding x:y coordinates
 POSITIONS = {
     "top-left": "10:10",
@@ -30,7 +31,6 @@ POSITIONS = {
     "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
     "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
 }
-
 
 async def add_watermark(video_path, user_id):
     # Fetch user-specific watermark settings or use a default text
@@ -109,7 +109,7 @@ async def change_watermark_position(client, callback_query):
         user_watermarks[user_id] = {'position': position}
 
     await callback_query.answer(f"Watermark position updated to {position.replace('_', ' ').title()} ✅")
-
+    
 # Callback for editing watermark settings
 @app.on_callback_query(filters.regex("set_position|set_width|set_opacity"))
 async def on_callback_query(client, callback_query):
@@ -175,13 +175,16 @@ async def handle_video(client, message: Message):
     await download_message.edit("Adding watermark...")
     watermarked_video_path = await add_watermark(video_path, message.from_user.id)
 
-    # Upload the watermarked video
-    await download_message.edit("Uploading watermarked video...")
-    await message.reply_video(watermarked_video_path)
+    if watermarked_video_path is None:
+        await download_message.edit("❌ Failed to add watermark. Please try again.")
+    else:
+        # Upload the watermarked video
+        await download_message.edit("Uploading watermarked video...")
+        await message.reply_video(watermarked_video_path)
 
-    # Cleanup
-    os.remove(video_path)
-    os.remove(watermarked_video_path)
+        # Cleanup
+        os.remove(video_path)
+        os.remove(watermarked_video_path)
 
 # Run the bot
 app.run()
