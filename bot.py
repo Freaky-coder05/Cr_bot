@@ -46,7 +46,7 @@ async def add_watermark(video_path, user_id, message):
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
     position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 50)  # Default width in pixels
+    width = user_watermarks.get(user_id, {}).get('width', 25)  # Default width in pixels
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
