@@ -25,21 +25,6 @@ POSITIONS = {
     "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
 }
 
-async def get_video_duration(video_path):
-    """Get the total duration of the video using FFmpeg."""
-    try:
-        probe = ffmpeg.probe(video_path)
-        duration = float(probe['format']['duration'])
-        return duration
-    except Exception as e:
-        print(f"Error retrieving video duration: {e}")
-        return None
-
-def generate_progress_bar(progress, total_bars=20, symbol="⬢"):
-    """Generate a progress bar with the given symbol."""
-    filled_length = int(total_bars * progress / 100)
-    empty_length = total_bars - filled_length
-    return symbol * filled_length + " " * empty_length
 
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
@@ -72,6 +57,7 @@ async def add_watermark(video_path, user_id, message):
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
         # Track progress using stderr output
+        last_progress = 0
         while True:
             stderr_line = await process.stderr.readline()
             if stderr_line:
@@ -89,10 +75,12 @@ async def add_watermark(video_path, user_id, message):
                     # Calculate progress percentage
                     progress = (current_time / total_duration) * 100
 
-                    # Generate visual progress bar using symbols
-                    progress_bar = generate_progress_bar(progress)
-
-                    await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
+                    # Only update if progress increased by at least 1% to reduce message flooding
+                    if progress - last_progress >= 1:
+                        # Generate visual progress bar using symbols
+                        progress_bar = generate_progress_bar(progress)
+                        await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
+                        last_progress = progress
 
             if process.returncode is not None:
                 break
@@ -102,11 +90,52 @@ async def add_watermark(video_path, user_id, message):
         if process.returncode != 0:
             raise Exception(f"FFmpeg error: {stderr_line}")
 
+        await message.edit("Watermarking complete! Uploading the video...")
         return output_path
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
+
+
+def generate_progress_bar(progress):
+    # Create a progress bar out of 10 blocks
+    progress_blocks = 10
+    filled_blocks = int(progress_blocks * (progress / 100))
+    unfilled_blocks = progress_blocks - filled_blocks
+
+    return "⬢" * filled_blocks + "⬡" * unfilled_blocks
+
+
+async def get_video_duration(video_path):
+    try:
+        # Run FFmpeg to get video file information
+        command = [
+            'ffmpeg', '-i', video_path, '-f', 'null', '-'
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        
+        # Capture output
+        stdout, stderr = await process.communicate()
+        
+        # Convert stderr to string for parsing
+        stderr = stderr.decode('utf-8')
+        
+        # Look for duration in FFmpeg output
+        duration_match = re.search(r'Duration: (\d+):(\d+):(\d+)\.(\d+)', stderr)
+        if duration_match:
+            hours, minutes, seconds, _ = map(int, duration_match.groups())
+            total_duration = hours * 3600 + minutes * 60 + seconds
+            return total_duration
+        else:
+            return None
+
+    except Exception as e:
+        print(f"Error getting video duration: {e}")
+        return None
+
 
 async def get_video_bitrate(video_path):
     try:
