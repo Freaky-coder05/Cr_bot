@@ -4,6 +4,7 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 import ffmpeg
 from config import API_ID, API_HASH, BOT_TOKEN
+import re
 
 # Configurations
 WATERMARK_PATH = "default_watermark.png"  # Default watermark path
@@ -30,7 +31,17 @@ POSITIONS = {
     "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
 }
 
-async def add_watermark(video_path, user_id):
+async def get_video_duration(video_path):
+    """Get the total duration of the video using FFmpeg."""
+    try:
+        probe = ffmpeg.probe(video_path)
+        duration = float(probe['format']['duration'])
+        return duration
+    except Exception as e:
+        print(f"Error retrieving video duration: {e}")
+        return None
+
+async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
@@ -40,20 +51,49 @@ async def add_watermark(video_path, user_id):
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
 
+    # Get total duration of the video for progress calculation
+    total_duration = await get_video_duration(video_path)
+    if total_duration is None:
+        await message.edit("❌ Failed to get video duration.")
+        return None
+
     try:
-        # Run FFmpeg command to add text watermark
+        # Run FFmpeg command to add text watermark and track progress
         command = [
-            'ffmpeg', '-i', video_path,
+            'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'libx264', '-crf', '23', '-preset', 'veryfast',
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
             '-c:a', 'copy', output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await process.communicate()
+        
+        # Track progress using stderr output
+        while True:
+            stderr_line = await process.stderr.readline()
+            if stderr_line:
+                stderr_line = stderr_line.decode('utf-8').strip()
+
+                # Parse the current time from FFmpeg output
+                time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", stderr_line)
+                if time_match:
+                    current_time_str = time_match.group(1)
+                    current_time_parts = current_time_str.split(":")
+                    current_time = (float(current_time_parts[0]) * 3600 +  # hours
+                                    float(current_time_parts[1]) * 60 +    # minutes
+                                    float(current_time_parts[2]))          # seconds
+
+                    # Calculate progress percentage
+                    progress = (current_time / total_duration) * 100
+                    await message.edit(f"Watermarking in progress... {progress:.2f}% done")
+
+            if process.returncode is not None:
+                break
+
+        await process.wait()
 
         if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr.decode()}")
+            raise Exception(f"FFmpeg error: {stderr_line}")
 
         return output_path
 
@@ -138,7 +178,7 @@ async def handle_video(client, message: Message):
     video_path = await message.download()
 
     await download_message.edit("Adding watermark...")
-    watermarked_video_path = await add_watermark(video_path, message.from_user.id)
+    watermarked_video_path = await add_watermark(video_path, message.from_user.id, download_message)
 
     if watermarked_video_path is None:
         await download_message.edit("❌ Failed to add watermark. Please try again.")
