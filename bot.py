@@ -157,7 +157,6 @@ async def set_custom_watermark(client, message):
 
     await message.reply_text(f"Custom watermark set to: {watermark_text}")
 
-# Handling video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
     # Initialize user settings if not already present
@@ -176,9 +175,9 @@ async def handle_video(client, message: Message):
     if watermarked_video_path is None:
         await download_message.edit("❌ Failed to add watermark. Please try again.")
     else:
-        # Upload the watermarked video using the absolute path
+        # Upload the watermarked video
         await download_message.edit("Uploading watermarked video...")
-        await message.reply_video(watermarked_video_path)
+        await message.reply_video(video=watermarked_video_path)  # Indicating it's a local file
 
         # Cleanup
         os.remove(video_path)
