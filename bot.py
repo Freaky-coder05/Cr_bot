@@ -58,11 +58,14 @@ async def add_watermark(video_path, user_id, message):
         return None
 
     try:
-        # Run FFmpeg command to add text watermark and track progress
+        # Get original video bitrate to maintain output size
+        original_bitrate = await get_video_bitrate(video_path)
+
+        # Run FFmpeg command to add text watermark and limit output bitrate
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
+            '-c:v', 'libx264', '-b:v', original_bitrate, '-preset', 'fast',
             '-c:a', 'copy', output_path
         ]
 
