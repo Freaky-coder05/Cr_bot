@@ -52,7 +52,7 @@ async def add_watermark(video_path, user_id, message):
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
     position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 50)  # Default width in pixels
+    width = user_watermarks.get(user_id, {}).get('width', 15)  # Default width in pixels
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
@@ -186,8 +186,7 @@ async def adjust_watermark_settings(client, callback_query):
 async def handle_video(client, message: Message):
     download_message = await message.reply("Downloading video...")
     video_path = await message.download()
-
-    await download_message.edit("Adding watermark...")
+    
     watermarked_video_path = await add_watermark(video_path, message.from_user.id, download_message)
 
     if watermarked_video_path is None:
