@@ -70,7 +70,7 @@ async def add_watermark(video_path, user_id, progress_message):
         if process.returncode != 0:
             raise Exception(f"FFmpeg error: {stderr.decode()}")
 
-        # Proceed to encoding step after watermarking
+        # Move to the encoding process immediately after watermarking without delay
         await progress_message.edit_text("Watermark added successfully! Starting encoding...")
 
         # Call encoding function with a separate progress bar
@@ -92,11 +92,13 @@ async def encode_video(watermarked_path, progress_message):
     progress = 0  # Initialize progress
 
     try:
-        # Simulate FFmpeg encoding command
+        # FFmpeg encoding command with optimizations to reduce output file size
         command = [
             'ffmpeg', '-i', watermarked_path,
-            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
-            '-c:a', 'aac', '-strict', 'experimental', encoded_output_path
+            '-c:v', 'libx264', '-crf', '28', '-preset', 'slow',  # Increased CRF to reduce file size
+            '-c:a', 'aac', '-b:a', '128k',  # Optimize audio size
+            '-movflags', '+faststart',  # Helps with streaming and playback
+            encoded_output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
