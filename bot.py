@@ -52,7 +52,8 @@ def add_watermark(video_path, user_id):
 
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        return output_path
+        # Return absolute path of the output file
+        return os.path.abspath(output_path)
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
@@ -175,13 +176,12 @@ async def handle_video(client, message: Message):
     if watermarked_video_path is None:
         await download_message.edit("❌ Failed to add watermark. Please try again.")
     else:
-        # Upload the watermarked video
+        # Upload the watermarked video using the absolute path
         await download_message.edit("Uploading watermarked video...")
         await message.reply_video(watermarked_video_path)
 
         # Cleanup
         os.remove(video_path)
         os.remove(watermarked_video_path)
-
 # Run the bot
 app.run()
