@@ -63,6 +63,10 @@ def add_watermark(video_path, user_id):
 async def edit_watermark(client, message):
     user_id = message.from_user.id
 
+    # Initialize user settings if not already present
+    if user_id not in user_watermarks:
+        user_watermarks[user_id] = {}
+
     buttons = [
         [
             InlineKeyboardButton("Position", callback_data="edit_position"),
@@ -76,6 +80,12 @@ async def edit_watermark(client, message):
 # Callback for editing watermark settings
 @app.on_callback_query(filters.regex("edit_(position|size|opacity)"))
 async def on_edit_settings(client, callback_query):
+    user_id = callback_query.from_user.id
+
+    # Initialize user settings if not already present
+    if user_id not in user_watermarks:
+        user_watermarks[user_id] = {}
+
     setting = callback_query.data.split("_")[1]
 
     if setting == "position":
@@ -113,6 +123,11 @@ async def on_edit_settings(client, callback_query):
 @app.on_callback_query(filters.regex("pos_|size_|opacity_"))
 async def adjust_watermark_settings(client, callback_query):
     user_id = callback_query.from_user.id
+
+    # Initialize user settings if not already present
+    if user_id not in user_watermarks:
+        user_watermarks[user_id] = {}
+
     data = callback_query.data
 
     if data.startswith("pos_"):
@@ -130,16 +145,32 @@ async def adjust_watermark_settings(client, callback_query):
         user_watermarks[user_id]['opacity'] = opacity
         await callback_query.message.edit_text(f"Opacity set to {opacity}")
 
+# Set custom watermark text
+@app.on_message(filters.command("set_watermark") & filters.reply)
+async def set_custom_watermark(client, message):
+    user_id = message.from_user.id
+    watermark_text = message.reply_to_message.text
+
+    # Save custom watermark text in user settings
+    user_watermarks[user_id] = {'path': watermark_text}
+
+    await message.reply_text(f"Custom watermark set to: {watermark_text}")
+
 # Handling video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
+    # Initialize user settings if not already present
+    user_id = message.from_user.id
+    if user_id not in user_watermarks:
+        user_watermarks[user_id] = {}
+
     # Start downloading the video
     download_message = await message.reply("Downloading video...")
     video_path = await message.download()
 
     # Add watermark to the downloaded video
     await download_message.edit("Adding watermark...")
-    watermarked_video_path = add_watermark(video_path, message.from_user.id)
+    watermarked_video_path = add_watermark(video_path, user_id)
 
     if watermarked_video_path is None:
         await download_message.edit("❌ Failed to add watermark. Please try again.")
