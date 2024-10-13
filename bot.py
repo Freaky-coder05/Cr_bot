@@ -35,6 +35,12 @@ async def get_video_duration(video_path):
         print(f"Error retrieving video duration: {e}")
         return None
 
+def generate_progress_bar(progress, total_bars=20, symbol="⬢"):
+    """Generate a progress bar with the given symbol."""
+    filled_length = int(total_bars * progress / 100)
+    empty_length = total_bars - filled_length
+    return symbol * filled_length + " " * empty_length
+
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
@@ -45,22 +51,53 @@ async def add_watermark(video_path, user_id, message):
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
 
+    # Get total duration of the video for progress calculation
+    total_duration = await get_video_duration(video_path)
+    if total_duration is None:
+        await message.edit("❌ Failed to get video duration.")
+        return None
+
     try:
-        # Run FFmpeg command to add text watermark
+        # Run FFmpeg command to add text watermark and track progress
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'libx264', '-crf', '23', '-preset', 'ultrafast',
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
             '-c:a', 'copy', output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        
-        # Wait for the process to complete
+
+        # Track progress using stderr output
+        while True:
+            stderr_line = await process.stderr.readline()
+            if stderr_line:
+                stderr_line = stderr_line.decode('utf-8').strip()
+
+                # Parse the current time from FFmpeg output
+                time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", stderr_line)
+                if time_match:
+                    current_time_str = time_match.group(1)
+                    current_time_parts = current_time_str.split(":")
+                    current_time = (float(current_time_parts[0]) * 3600 +  # hours
+                                    float(current_time_parts[1]) * 60 +    # minutes
+                                    float(current_time_parts[2]))          # seconds
+
+                    # Calculate progress percentage
+                    progress = (current_time / total_duration) * 100
+
+                    # Generate visual progress bar using symbols
+                    progress_bar = generate_progress_bar(progress)
+
+                    await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
+
+            if process.returncode is not None:
+                break
+
         await process.wait()
 
         if process.returncode != 0:
-            raise Exception(f"FFmpeg error")
+            raise Exception(f"FFmpeg error: {stderr_line}")
 
         return output_path
 
@@ -80,8 +117,8 @@ async def edit_watermark(client, message):
             InlineKeyboardButton("Top-Right", callback_data="pos_top_right")
         ],
         [
-            InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom_left"),
-            InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom_right")
+            InlineKeyboardButton("Bottom-Left", callback_data="set_width"),
+            InlineKeyboardButton("Bottom-Right", callback_data="set_opacity")
         ],
         [InlineKeyboardButton("Center", callback_data="pos_center")]
     ]
