@@ -41,12 +41,18 @@ async def get_video_duration(video_path):
         print(f"Error retrieving video duration: {e}")
         return None
 
+def generate_progress_bar(progress, bar_length=20):
+    """Generate a text-based progress bar."""
+    filled_length = int(bar_length * progress / 100)
+    bar = "=" * filled_length + "-" * (bar_length - filled_length)
+    return f"[{bar}]"
+
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
     position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 25)  # Default width in pixels
+    width = user_watermarks.get(user_id, {}).get('width', 50)  # Default width in pixels
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
@@ -85,7 +91,11 @@ async def add_watermark(video_path, user_id, message):
 
                     # Calculate progress percentage
                     progress = (current_time / total_duration) * 100
-                    await message.edit(f"Watermarking in progress... {progress:.2f}% done")
+
+                    # Generate progress bar
+                    progress_bar = generate_progress_bar(progress)
+
+                    await message.edit(f"Adding watermark... {progress:.2f}% {progress_bar}")
 
             if process.returncode is not None:
                 break
