@@ -1,10 +1,16 @@
 import os
 import asyncio
+import time
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 import ffmpeg
 from config import API_ID, API_HASH, BOT_TOKEN
-import re
+
+# Configurations
+WATERMARK_PATH = "default_watermark.png"  # Default watermark path
+WATERMARK_POS = "top-left"  # Default watermark position
+WATERMARK_WIDTH = 50  # Default watermark width in pixels
+WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
 
 # Create your bot using your token from config
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -25,8 +31,7 @@ POSITIONS = {
     "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
 }
 
-
-async def add_watermark(video_path, user_id, message):
+async def add_watermark(video_path, user_id, progress_message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
     position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
@@ -35,136 +40,91 @@ async def add_watermark(video_path, user_id, message):
     opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
 
     output_path = f"watermarked_{os.path.basename(video_path)}"
-
-    # Get total duration of the video for progress calculation
-    total_duration = await get_video_duration(video_path)
-    if total_duration is None:
-        await message.edit("❌ Failed to get video duration.")
-        return None
+    total_steps = 10  # Define total steps for the progress bar
+    progress = 0  # Initialize progress
 
     try:
-        # Get original video bitrate to maintain output size
-        original_bitrate = await get_video_bitrate(video_path)
-
-        # Run FFmpeg command to add text watermark and limit output bitrate
+        # Start the FFmpeg process to add watermark
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'libx264', '-b:v', original_bitrate, '-preset', 'fast',
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
             '-c:a', 'copy', output_path
         ]
-
+        
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        start_time = time.time()  # Start time to calculate elapsed and remaining time
 
-        # Track progress using stderr output
-        last_progress = 0
-        while True:
-            stderr_line = await process.stderr.readline()
-            if stderr_line:
-                stderr_line = stderr_line.decode('utf-8').strip()
+        # Mock progress loop for watermarking
+        for i in range(total_steps):
+            await asyncio.sleep(2)  # Simulate time taken per step
+            progress += 1
+            elapsed_time = time.time() - start_time
+            estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
+            progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
 
-                # Parse the current time from FFmpeg output
-                time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", stderr_line)
-                if time_match:
-                    current_time_str = time_match.group(1)
-                    current_time_parts = current_time_str.split(":")
-                    current_time = (float(current_time_parts[0]) * 3600 +  # hours
-                                    float(current_time_parts[1]) * 60 +    # minutes
-                                    float(current_time_parts[2]))          # seconds
+            await progress_message.edit_text(f"Adding watermark... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
 
-                    # Calculate progress percentage
-                    progress = (current_time / total_duration) * 100
-
-                    # Only update if progress increased by at least 1% to reduce message flooding
-                    if progress - last_progress >= 1:
-                        # Generate visual progress bar using symbols
-                        progress_bar = generate_progress_bar(progress)
-                        await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
-                        last_progress = progress
-
-            if process.returncode is not None:
-                break
-
-        await process.wait()
+        stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr_line}")
+            raise Exception(f"FFmpeg error: {stderr.decode()}")
 
-        await message.edit("Watermarking complete! Uploading the video...")
-        return output_path
+        # Move to the encoding process immediately after watermarking without delay
+        await progress_message.edit_text("Watermark added successfully! Starting encoding...")
+
+        # Call encoding function with a separate progress bar
+        encoded_video_path = await encode_video(output_path, progress_message)
+
+        if encoded_video_path is None:
+            return None
+
+        return encoded_video_path
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
 
 
-def generate_progress_bar(progress):
-    # Create a progress bar out of 10 blocks
-    progress_blocks = 10
-    filled_blocks = int(progress_blocks * (progress / 100))
-    unfilled_blocks = progress_blocks - filled_blocks
+async def encode_video(watermarked_path, progress_message):
+    encoded_output_path = f"encoded_{os.path.basename(watermarked_path)}"
+    total_steps = 10  # Define total steps for encoding progress bar
+    progress = 0  # Initialize progress
 
-    return "⬢" * filled_blocks + "⬡" * unfilled_blocks
-
-
-async def get_video_duration(video_path):
     try:
-        # Run FFmpeg to get video file information
+        # FFmpeg encoding command with optimizations to reduce output file size
         command = [
-            'ffmpeg', '-i', video_path, '-f', 'null', '-'
+            'ffmpeg', '-i', watermarked_path,
+            '-c:v', 'libx264', '-crf', '28', '-preset', 'slow',  # Increased CRF to reduce file size
+            '-c:a', 'aac', '-b:a', '128k',  # Optimize audio size
+            '-movflags', '+faststart',  # Helps with streaming and playback
+            encoded_output_path
         ]
-        process = await asyncio.create_subprocess_exec(
-            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        
-        # Capture output
+
+        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        start_time = time.time()
+
+        # Mock progress loop for encoding
+        for i in range(total_steps):
+            await asyncio.sleep(2)  # Simulate time taken per step
+            progress += 1
+            elapsed_time = time.time() - start_time
+            estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
+            progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
+
+            await progress_message.edit_text(f"Encoding... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
+
         stdout, stderr = await process.communicate()
-        
-        # Convert stderr to string for parsing
-        stderr = stderr.decode('utf-8')
-        
-        # Look for duration in FFmpeg output
-        duration_match = re.search(r'Duration: (\d+):(\d+):(\d+)\.(\d+)', stderr)
-        if duration_match:
-            hours, minutes, seconds, _ = map(int, duration_match.groups())
-            total_duration = hours * 3600 + minutes * 60 + seconds
-            return total_duration
-        else:
-            return None
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg encoding error: {stderr.decode()}")
+
+        return encoded_output_path
 
     except Exception as e:
-        print(f"Error getting video duration: {e}")
+        print(f"Error during encoding: {e}")
         return None
 
-
-async def get_video_bitrate(video_path):
-    try:
-        # Run FFmpeg to get video file information
-        command = [
-            'ffmpeg', '-i', video_path, '-f', 'null', '-'
-        ]
-        process = await asyncio.create_subprocess_exec(
-            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        
-        # Capture output
-        stdout, stderr = await process.communicate()
-        
-        # Convert stderr to string for parsing
-        stderr = stderr.decode('utf-8')
-        
-        # Look for bitrate in FFmpeg output (in kb/s)
-        bitrate_match = re.search(r'bitrate: (\d+) kb/s', stderr)
-        if bitrate_match:
-            bitrate_kbps = bitrate_match.group(1)
-            # Convert kbps to bps for FFmpeg command
-            return f"{bitrate_kbps}k"
-        else:
-            return None
-
-    except Exception as e:
-        print(f"Error getting video bitrate: {e}")
-        return None
 
 # Command to edit watermark settings
 @app.on_message(filters.command("edit_watermark"))
@@ -178,79 +138,39 @@ async def edit_watermark(client, message):
             InlineKeyboardButton("Top-Right", callback_data="pos_top_right")
         ],
         [
-            InlineKeyboardButton("Bottom-Left", callback_data="set_width"),
-            InlineKeyboardButton("Bottom-Right", callback_data="set_opacity")
+            InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom_left"),
+            InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom_right")
         ],
         [InlineKeyboardButton("Center", callback_data="pos_center")]
     ]
 
     await message.reply_text("Select watermark position:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# Callback for editing watermark settings
-@app.on_callback_query(filters.regex("^pos_"))
-async def change_watermark_position(client, callback_query):
-    position = callback_query.data.split("_")[1].replace("-", "_")
-    user_id = callback_query.from_user.id
-
-    if user_id in user_watermarks:
-        user_watermarks[user_id]['position'] = position
-    else:
-        user_watermarks[user_id] = {'position': position}
-
-    await callback_query.answer(f"Watermark position updated to {position.replace('_', ' ').title()} ✅")
-
-@app.on_callback_query(filters.regex("set_width|set_opacity"))
-async def on_callback_query(client, callback_query):
-    setting = callback_query.data
-
-    if setting == "set_width":
-        width_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("50 px", callback_data="width_50"),
-             InlineKeyboardButton("100 px", callback_data="width_100")],
-            [InlineKeyboardButton("150 px", callback_data="width_150"),
-             InlineKeyboardButton("200 px", callback_data="width_200")]
-        ])
-        await callback_query.message.edit_text("Choose watermark width:", reply_markup=width_keyboard)
-
-    elif setting == "set_opacity":
-        opacity_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("0.2", callback_data="opacity_0.2"),
-             InlineKeyboardButton("0.5", callback_data="opacity_0.5")],
-            [InlineKeyboardButton("0.8", callback_data="opacity_0.8"),
-             InlineKeyboardButton("1.0", callback_data="opacity_1.0")]
-        ])
-        await callback_query.message.edit_text("Choose watermark opacity:", reply_markup=opacity_keyboard)
-
-# Handle watermark position, width, and opacity changes
-@app.on_callback_query(filters.regex("width_|opacity_"))
-async def adjust_watermark_settings(client, callback_query):
-    user_id = callback_query.from_user.id
-    setting = callback_query.data
-
-    if "width_" in setting:
-        width = int(setting.split("_")[1])
-        user_watermarks[user_id]['width'] = width
-        await callback_query.message.edit_text(f"Watermark width set to {width} px")
-    elif "opacity_" in setting:
-        opacity = float(setting.split("_")[1])
-        user_watermarks[user_id]['opacity'] = opacity
-        await callback_query.message.edit_text(f"Watermark opacity set to {opacity}")
-
-# Handling video or document uploads to add watermark
+# Handle video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
     download_message = await message.reply("Downloading video...")
     video_path = await message.download()
-    
-    watermarked_video_path = await add_watermark(video_path, message.from_user.id, download_message)
 
-    if watermarked_video_path is None:
-        await download_message.edit("❌ Failed to add watermark. Please try again.")
+    progress_message = await message.reply("Processing...")
+
+    # Add watermark and encode the video
+    final_video_path = await add_watermark(video_path, message.from_user.id, progress_message)
+
+    if final_video_path is None:
+        await progress_message.edit("❌ Failed to add watermark and encode. Please try again.")
     else:
-        await download_message.edit("Uploading watermarked video...")
-        await message.reply_video(watermarked_video_path)
+        # Update the message to indicate the start of the upload process
+        await progress_message.edit("Encoding completed! Uploading the video...")
 
+        # Upload the final encoded video
+        await message.reply_video(final_video_path)
+
+        # Clean up the files
         os.remove(video_path)
-        os.remove(watermarked_video_path)
+        os.remove(final_video_path)
+
+        # Edit the message to show upload is complete
+        await progress_message.edit("✅ Video uploaded successfully.")
 
 app.run()
