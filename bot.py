@@ -41,6 +41,20 @@ def generate_progress_bar(progress, total_bars=20, symbol="⬢"):
     empty_length = total_bars - filled_length
     return symbol * filled_length + " " * empty_length
 
+
+                                    float(current_time_parts[2]))          # seconds
+
+                    # Calculate progress percentage
+                    progress = (current_time / total_duration) * 100
+
+                    # Generate visual progress bar using symbols
+                    progress_bar = generate_progress_bar(progress)
+
+                    await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
+
+            if process.returncode is not None:
+                break
+
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
@@ -106,6 +120,35 @@ async def add_watermark(video_path, user_id, message):
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
+        return None
+
+async def get_video_bitrate(video_path):
+    try:
+        # Run FFmpeg to get video file information
+        command = [
+            'ffmpeg', '-i', video_path, '-f', 'null', '-'
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        
+        # Capture output
+        stdout, stderr = await process.communicate()
+        
+        # Convert stderr to string for parsing
+        stderr = stderr.decode('utf-8')
+        
+        # Look for bitrate in FFmpeg output (in kb/s)
+        bitrate_match = re.search(r'bitrate: (\d+) kb/s', stderr)
+        if bitrate_match:
+            bitrate_kbps = bitrate_match.group(1)
+            # Convert kbps to bps for FFmpeg command
+            return f"{bitrate_kbps}k"
+        else:
+            return None
+
+    except Exception as e:
+        print(f"Error getting video bitrate: {e}")
         return None
 
 # Command to edit watermark settings
