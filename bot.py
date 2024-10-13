@@ -41,20 +41,6 @@ def generate_progress_bar(progress, total_bars=20, symbol="⬢"):
     empty_length = total_bars - filled_length
     return symbol * filled_length + " " * empty_length
 
-
-                                    float(current_time_parts[2]))          # seconds
-
-                    # Calculate progress percentage
-                    progress = (current_time / total_duration) * 100
-
-                    # Generate visual progress bar using symbols
-                    progress_bar = generate_progress_bar(progress)
-
-                    await message.edit(f"Adding watermark... {progress:.2f}%\n{progress_bar}")
-
-            if process.returncode is not None:
-                break
-
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
