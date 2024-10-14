@@ -34,7 +34,7 @@ def create_watermark_image():
     draw = ImageDraw.Draw(watermark)
 
     # Draw the text on the image
-    text = "Sample Watermark"
+    text = "Anime_Warrior_Tamil"
     textwidth, textheight = draw.textsize(text, font)
 
     # Position the text
