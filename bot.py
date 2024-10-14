@@ -58,12 +58,13 @@ async def handle_video(client, message: Message):
 async def add_watermark(video_path, user_id, progress_message):
     global WATERMARK_PATH
     output_path = f"watermarked_{os.path.basename(video_path)}"
-    
+
     try:
-        # Start the FFmpeg process to add watermark using the image path
+        # Start the FFmpeg process to add watermark with transparency handling
         command = [
             'ffmpeg', '-i', video_path, '-i', WATERMARK_PATH,
-            '-filter_complex', 'overlay=10:10', '-c:a', 'copy', output_path
+            '-filter_complex', '[1][0]scale2ref=w=iw*0.15:h=ow*0.15[wm][vid];[vid][wm]overlay=10:10',  # Scale the watermark and overlay
+            '-c:a', 'copy', output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
