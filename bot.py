@@ -75,9 +75,8 @@ async def add_watermark(video_path, user_id, message):
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'copy',  # This preserves the original video without re-encoding
-            '-c:a', 'copy',  # This preserves the original audio without re-encoding
-            output_path
+            '-c:v', 'copy', '-crf', '0', '-preset', 'medium',
+            '-c:a', 'copy', output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
