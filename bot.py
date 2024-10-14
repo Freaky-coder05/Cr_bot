@@ -24,6 +24,9 @@ positions = {
     "Bottom-Right": "main_w-overlay_w-10:main_h-overlay_h-10"
 }
 
+# Dictionary to hold user session data
+user_sessions = {}
+
 # Function to create a simple watermark image
 def create_watermark_image():
     width, height = 400, 100
@@ -77,7 +80,7 @@ async def add_watermark(client, message):
 
     # Store file info for later use
     file_path = await message.download(f"{WORKING_DIR}/{video.file_name}")
-    message.session = {"file_path": file_path}  # Store for further use
+    user_sessions[message.from_user.id] = {"file_path": file_path}  # Store for further use
 
 # Handle button presses for size and position
 @bot.on_callback_query()
@@ -85,23 +88,30 @@ async def handle_query(client, callback_query):
     data = callback_query.data
     user_id = callback_query.from_user.id
 
-    # Retrieve file path from the session
-    file_info = callback_query.message.session
+    # Retrieve file path from the user session
+    file_info = user_sessions.get(user_id)
+
+    if file_info is None:
+        await callback_query.answer("No video found, please send a video first.")
+        return
+
     file_path = file_info["file_path"]
 
     # Determine watermark size and position
     if data.startswith("size_"):
         size = int(data.split("_")[1])
-        callback_query.message.session["size"] = size
+        user_sessions[user_id]["size"] = size
+        await callback_query.answer("Size selected!")
     elif data.startswith("position_"):
         pos_key = data.split("_")[1] + "_" + data.split("_")[2]
         position = positions.get(pos_key.replace('_', '-'))
-        callback_query.message.session["position"] = position
+        user_sessions[user_id]["position"] = position
+        await callback_query.answer("Position selected!")
 
     # Start watermarking once both size and position are selected
-    if "size" in callback_query.message.session and "position" in callback_query.message.session:
+    if "size" in user_sessions[user_id] and "position" in user_sessions[user_id]:
         await callback_query.answer("Watermarking video...")
-        await process_watermark(user_id, file_path, callback_query.message.session["size"], callback_query.message.session["position"], callback_query.message)
+        await process_watermark(user_id, file_path, user_sessions[user_id]["size"], user_sessions[user_id]["position"], callback_query.message)
 
 # Process video with watermark using FFmpeg
 async def process_watermark(user_id, input_video, size, position, message):
@@ -129,6 +139,9 @@ async def process_watermark(user_id, input_video, size, position, message):
     # Clean up
     os.remove(input_video)
     os.remove(output_vid)
+
+    # Remove user session after processing
+    user_sessions.pop(user_id, None)
 
 # Start the bot
 bot.run()
