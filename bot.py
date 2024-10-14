@@ -6,97 +6,28 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 import ffmpeg
 from config import API_ID, API_HASH, BOT_TOKEN
 
-# Configurations
-WATERMARK_PATH = "default_watermark.png"  # Default watermark path
-WATERMARK_POS = "top-left"  # Default watermark position
-WATERMARK_WIDTH = 50  # Default watermark width in pixels
-WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
+# Default watermark image path
+WATERMARK_PATH = "default_watermark.png"
 
 # Create your bot using your token from config
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Dictionary to hold user watermark settings
-user_watermarks = {}
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
     await message.reply_text("Hi, I am a watermark adder bot ☘️")
 
-# Valid predefined positions and their corresponding x:y coordinates
-POSITIONS = {
-    "top-left": "10:10",
-    "top-right": "main_w-overlay_w-10:10",
-    "bottom-left": "10:main_h-overlay_h-10",
-    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
-    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
-}
-
-async def add_watermark(video_path, user_id, progress_message):
-    # Fetch user-specific watermark settings or use defaults
-    watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
-    position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
-    position_xy = POSITIONS.get(position, "10:10")
-    width = user_watermarks.get(user_id, {}).get('width', 15)  # Default width in pixels
-    opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
-
-    output_path = f"watermarked_{os.path.basename(video_path)}"
-    total_steps = 10  # Define total steps for the progress bar
-    progress = 0  # Initialize progress
-
-    try:
-        # Start the FFmpeg process to add watermark
-        command = [
-            'ffmpeg', '-i', video_path,
-            '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', '-preset', 'fast', "-crf", "0", "-c:a", "copy", output_path
-        ]
-        
-        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        start_time = time.time()  # Start time to calculate elapsed and remaining time
-
-        # Mock progress loop for watermarking
-        for i in range(total_steps):
-            await asyncio.sleep(2)  # Simulate time taken per step
-            progress += 1
-            elapsed_time = time.time() - start_time
-            estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
-            progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
-
-            await progress_message.edit_text(f"Adding watermark... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
-
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr.decode()}")
-
-        # Watermark added successfully, upload the watermarked video directly
-        await progress_message.edit_text("Watermark added successfully! Uploading the video...")
-
-        return output_path
-
-    except Exception as e:
-        print(f"Error adding watermark: {e}")
-        return None
-
-# Command to edit watermark settings
-@app.on_message(filters.command("edit_watermark"))
-async def edit_watermark(client, message):
-    user_id = message.from_user.id
-
-    # Create inline buttons for adjusting watermark position, size, and transparency
-    buttons = [
-        [
-            InlineKeyboardButton("Top-Left", callback_data="pos_top_left"),
-            InlineKeyboardButton("Top-Right", callback_data="pos_top_right")
-        ],
-        [
-            InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom_left"),
-            InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom_right")
-        ],
-        [InlineKeyboardButton("Center", callback_data="pos_center")]
-    ]
-
-    await message.reply_text("Select watermark position:", reply_markup=InlineKeyboardMarkup(buttons))
+# Handle image upload to set as the new watermark
+@app.on_message(filters.photo)
+async def handle_image(client, message: Message):
+    global WATERMARK_PATH
+    # Download the image and set it as the watermark
+    download_message = await message.reply("Downloading watermark image...")
+    image_path = await message.download()
+    
+    # Update the global watermark path to the new image
+    WATERMARK_PATH = image_path
+    
+    await download_message.edit_text("Watermark added successfully ✅")
 
 # Handle video or document uploads to add watermark
 @app.on_message(filters.video | filters.document)
@@ -106,12 +37,15 @@ async def handle_video(client, message: Message):
 
     progress_message = await message.reply("Processing...")
 
-    # Add watermark and upload the video
+    # Add watermark (using the updated WATERMARK_PATH)
     final_video_path = await add_watermark(video_path, message.from_user.id, progress_message)
 
     if final_video_path is None:
         await progress_message.edit("❌ Failed to add watermark. Please try again.")
     else:
+        # Update the message to indicate the start of the upload process
+        await progress_message.edit("Watermark added successfully! Uploading the video...")
+
         # Upload the final watermarked video
         await message.reply_video(final_video_path)
 
@@ -119,7 +53,29 @@ async def handle_video(client, message: Message):
         os.remove(video_path)
         os.remove(final_video_path)
 
-        # Edit the message to show upload is complete
         await progress_message.edit("✅ Video uploaded successfully.")
+
+async def add_watermark(video_path, user_id, progress_message):
+    global WATERMARK_PATH
+    output_path = f"watermarked_{os.path.basename(video_path)}"
+    
+    try:
+        # Start the FFmpeg process to add watermark using the image path
+        command = [
+            'ffmpeg', '-i', video_path, '-i', WATERMARK_PATH,
+            '-filter_complex', 'overlay=10:10', '-c:a', 'copy', output_path
+        ]
+
+        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {stderr.decode()}")
+
+        return output_path
+
+    except Exception as e:
+        print(f"Error adding watermark: {e}")
+        return None
 
 app.run()
