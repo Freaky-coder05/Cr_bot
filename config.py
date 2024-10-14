@@ -7,6 +7,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "6610201435:AAHEv2YoM2ZEtlEdqjilv9mZGjT9Uzzrn
 # Directory to save and process files
 SAVE_DIR = './downloads'
 
+
+# Path to your watermark image file
+WATERMARK_PATH = "watermark.png"  # The watermark image created by the bot
+
+# Directory for storing temporary video files
+WORKING_DIR = "downloads"  # Directory for saving downloaded and processed files
+
 # AI model settings
 MODEL_NAME = "facebook/bart-large-mnli"
 
