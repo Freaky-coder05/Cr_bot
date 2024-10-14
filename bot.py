@@ -75,8 +75,9 @@ async def add_watermark(video_path, user_id, message):
         command = [
             'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'libx264', '-crf', '0', '-preset', 'ultrafast',
-            '-c:a', 'copy', output_path
+            '-c:v', 'copy',  # This preserves the original video without re-encoding
+            '-c:a', 'copy',  # This preserves the original audio without re-encoding
+            output_path
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -200,7 +201,7 @@ async def adjust_watermark_settings(client, callback_query):
 async def handle_video(client, message: Message):
     download_message = await message.reply("Downloading video...")
     video_path = await message.download()
-
+    await download_message.edit_text("Watermarking video.....")
     watermarked_video_path = await add_watermark(video_path, message.from_user.id, download_message)
 
     if watermarked_video_path is None:
