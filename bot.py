@@ -34,8 +34,12 @@ def create_watermark_image():
     draw = ImageDraw.Draw(watermark)
 
     # Draw the text on the image
-    text = "Anime_Warrior_Tamil"
-    textwidth, textheight = draw.textsize(text, font)
+    text = "Sample Watermark"
+
+    # Calculate the bounding box of the text
+    bbox = draw.textbbox((0, 0), text, font=font)
+    textwidth = bbox[2] - bbox[0]
+    textheight = bbox[3] - bbox[1]
 
     # Position the text
     x = (width - textwidth) / 2
