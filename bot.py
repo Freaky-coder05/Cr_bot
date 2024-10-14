@@ -80,6 +80,7 @@ async def add_watermark(client, message):
 
     # Store file info for later use
     file_path = await message.download(f"{WORKING_DIR}/{video.file_name}")
+    print(f"File downloaded: {file_path}")  # Debugging statement
     user_sessions[message.from_user.id] = {"file_path": file_path}  # Store for further use
 
 # Handle button presses for size and position
@@ -96,6 +97,7 @@ async def handle_query(client, callback_query):
         return
 
     file_path = file_info["file_path"]
+    print(f"User {user_id} selected size/position with file path: {file_path}")  # Debugging statement
 
     # Determine watermark size and position
     if data.startswith("size_"):
@@ -124,6 +126,8 @@ async def process_watermark(user_id, input_video, size, position, message):
         "-c:v", "copy", "-preset", "fast", "-crf", "0", "-c:a", "copy", output_vid
     ]
 
+    print(f"Executing command: {' '.join(file_genertor_command)}")  # Debugging statement
+
     # Run the FFmpeg command
     process = await asyncio.create_subprocess_exec(
         *file_genertor_command,
@@ -133,12 +137,15 @@ async def process_watermark(user_id, input_video, size, position, message):
 
     await process.communicate()
 
-    # Send the watermarked video to the user
-    await message.reply_video(output_vid, caption="Here is your watermarked video!")
+    if os.path.exists(output_vid):
+        # Send the watermarked video to the user
+        await message.reply_video(output_vid, caption="Here is your watermarked video!")
 
-    # Clean up
-    os.remove(input_video)
-    os.remove(output_vid)
+        # Clean up
+        os.remove(input_video)
+        os.remove(output_vid)
+    else:
+        await message.reply_text("An error occurred while processing the video. Please try again.")
 
     # Remove user session after processing
     user_sessions.pop(user_id, None)
