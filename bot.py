@@ -48,7 +48,7 @@ async def add_watermark(video_path, user_id, progress_message):
         command = [
             'ffmpeg', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
-            '-c:v', 'copy', '-preset', 'fast', "-crf", "0", "-c:a", "copy", output_path
+            '-c:v', '-preset', 'fast', "-crf", "0", "-c:a", "copy", output_path
         ]
         
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
