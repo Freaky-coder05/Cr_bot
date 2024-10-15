@@ -8,8 +8,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "6610201435:AAHEv2YoM2ZEtlEdqjilv9mZGjT9Uzzrn
 SAVE_DIR = './downloads'
 
 
-# Path to your watermark image file
-WATERMARK_PATH = "watermark.png"  # The watermark image created by the bot
+# Default watermark settings (can be changed by sending a new image)
+WATERMARK_PATH = "default_watermark.png"  # Default watermark image path
+WATERMARK_SIZE = 0.1  # Adjust size as percentage of video width (default is 10%)
+WATERMARK_TRANSPARENCY = 0.5  # Transparency level (0: fully transparent, 1: fully opaque)
+WATERMARK_POSITION = "top-left"  # You can choose "top-right", "bottom-right", etc.
+
+
 
 # Directory for storing temporary video files
 WORKING_DIR = "downloads"  # Directory for saving downloaded and processed files
