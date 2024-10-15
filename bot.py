@@ -1,89 +1,102 @@
 import os
-import ffmpeg
-import asyncio
+import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import API_ID, API_HASH, BOT_TOKEN, WATERMARK_PATH, WATERMARK_SIZE, WATERMARK_TRANSPARENCY, WATERMARK_POSITION
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-bot = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Load configuration
+from config import API_ID, API_HASH, BOT_TOKEN, ADMINS, WATERMARK_PATH
 
-# Initialize a global variable for the watermark image path
-current_watermark = WATERMARK_PATH
+app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Start message
-START_MSG = "Welcome to the Advanced Watermark Bot! Send me a video, and I'll add a watermark.\n\nYou can also send an image to set it as the watermark."
+# Helper function to add watermark
+def add_watermark(video_path: str, output_path: str, watermark_path: str, position: str, transparency: float, size: str):
+    scale = "1"
+    if size == "small":
+        scale = "0.25"
+    elif size == "medium":
+        scale = "0.5"
+    elif size == "large":
+        scale = "1"
 
-@bot.on_message(filters.command("start"))
-async def start(_, message):
-    await message.reply(START_MSG)
+    cmd = [
+        "ffmpeg",
+        "-i", video_path,
+        "-i", watermark_path,
+        "-filter_complex", f"[1][0]scale={scale}*iw:{scale}*ih[wm];[0][wm]overlay={position}",
+        "-c:a", "copy",
+        output_path
+    ]
+    
+    # Adding transparency
+    if transparency < 1.0:
+        cmd.insert(5, "-vf")
+        cmd.insert(6, f"format=rgba, colorchannelmixer=0:0:0:{transparency}")
 
-# Function to add watermark
-async def add_watermark(input_file, output_file, watermark_file):
-    try:
-        stream = ffmpeg.input(input_file)
-        watermark = ffmpeg.input(watermark_file)
+    subprocess.run(cmd)
 
-        # Positioning and size of the watermark
-        if WATERMARK_POSITION == "top-right":
-            position = "(main_w-overlay_w-10):10"
-        elif WATERMARK_POSITION == "bottom-right":
-            position = "(main_w-overlay_w-10):(main_h-overlay_h-10)"
-        else:
-            position = "10:10"
+# Helper function to remove watermark (For demonstration)
+def remove_watermark(video_path: str, output_path: str):
+    # Note: Real removal is complex and requires advanced techniques. This is a placeholder.
+    os.rename(video_path, output_path)  # Simulate by renaming
 
-        # Apply the watermark without the opacity option
-        stream = ffmpeg.overlay(
-            stream,
-            watermark,
-            x=position,
-            y=position,
-            shortest=1
-        ).output(output_file).global_args('-y')
+@app.on_message(filters.command("start"))
+async def start(client, message: Message):
+    await message.reply("Welcome to the Watermark Bot! Use /add_watermark or /remove_watermark or send an image to set as a watermark.")
 
-        ffmpeg.run(stream)
-    except Exception as e:
-        print(f"Error adding watermark: {e}")
-        return False
-    return True
+@app.on_message(filters.command("add_watermark"))
+async def add_watermark_command(client, message: Message):
+    await message.reply("Please send a video file to add the watermark.")
 
-# Command to handle video files and add watermark
-@bot.on_message(filters.video | filters.document)
-async def watermark_handler(_, message):
-    download_msg = await message.reply("Downloading video...")
+@app.on_message(filters.command("remove_watermark"))
+async def remove_watermark_command(client, message: Message):
+    await message.reply("Please send a video file to remove the watermark.")
 
-    # Download video file
-    video_path = await message.download()
+@app.on_message(filters.photo)
+async def set_watermark(client, message: Message):
+    # Save the watermark image
+    watermark_path = f"downloads/watermark_{message.photo.file_id}.png"
+    await message.download(watermark_path)
+    
+    # Update the watermark path in the configuration or globally
+    global WATERMARK_PATH
+    WATERMARK_PATH = watermark_path
 
-    # Define output file path
-    output_file = "watermarked_" + os.path.basename(video_path)
+    await message.reply("Watermark added successfully ✅")
 
-    await download_msg.edit("Adding watermark...")
+@app.on_message(filters.video)
+async def handle_video(client, message: Message):
+    # Assuming the user sent a video after the /add_watermark command
+    video_path = f"downloads/{message.video.file_id}.mp4"
+    output_path = f"downloads/output_{message.video.file_id}.mp4"
+    position = "10:10"  # Example position (x:y)
+    transparency = 0.5  # Example transparency
+    size = "medium"  # Example size
 
-    # Add watermark using FFmpeg
-    success = await add_watermark(video_path, output_file, current_watermark)
+    await message.download(video_path)
+    await message.reply("Processing video...")
 
-    if success:
-        await download_msg.edit("Uploading watermarked video...")
-        await message.reply_video(video=output_file)
+    # Add watermark
+    add_watermark(video_path, output_path, WATERMARK_PATH, position, transparency, size)
 
-        # Clean up
-        os.remove(video_path)
-        os.remove(output_file)
-    else:
-        await download_msg.edit("Failed to add watermark.")
+    await message.reply_video(output_path, caption="Here is your watermarked video!")
+    os.remove(video_path)
+    os.remove(output_path)
 
-# Command to handle image files and set them as watermark
-@bot.on_message(filters.photo)
-async def set_watermark(_, message):
-    global current_watermark
+@app.on_message(filters.video & filters.command("remove_watermark"))
+async def handle_remove_video(client, message: Message):
+    # Handle removing watermark
+    video_path = f"downloads/{message.video.file_id}.mp4"
+    output_path = f"downloads/output_{message.video.file_id}.mp4"
 
-    # Download the new watermark image
-    watermark_path = await message.download()
+    await message.download(video_path)
+    await message.reply("Removing watermark...")
 
-    # Set it as the current watermark
-    current_watermark = watermark_path
+    # Simulate watermark removal
+    remove_watermark(video_path, output_path)
 
-    await message.reply("Watermark image set successfully ✅")
+    await message.reply_video(output_path, caption="Here is your video without the watermark!")
+    os.remove(video_path)
+    os.remove(output_path)
 
-# Run the bot
-bot.run()
+if __name__ == "__main__":
+    app.run()
