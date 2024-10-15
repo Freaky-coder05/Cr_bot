@@ -23,7 +23,7 @@ async def add_watermark(input_file, output_file, watermark_file):
         stream = ffmpeg.input(input_file)
         watermark = ffmpeg.input(watermark_file)
 
-        # Positioning, size, and transparency of the watermark
+        # Positioning and size of the watermark
         if WATERMARK_POSITION == "top-right":
             position = "(main_w-overlay_w-10):10"
         elif WATERMARK_POSITION == "bottom-right":
@@ -31,13 +31,12 @@ async def add_watermark(input_file, output_file, watermark_file):
         else:
             position = "10:10"
 
+        # Apply the watermark without the opacity option
         stream = ffmpeg.overlay(
             stream,
             watermark,
             x=position,
             y=position,
-            eval='init',
-            opacity=WATERMARK_TRANSPARENCY,
             shortest=1
         ).output(output_file).global_args('-y')
 
