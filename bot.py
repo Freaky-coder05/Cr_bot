@@ -2,16 +2,13 @@ import os
 import ffmpeg
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message
 from pyrogram.errors import MessageNotModified
-import time
-
-# Load configuration from config.py
 from config import API_ID, API_HASH, BOT_TOKEN
 
 bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-user_video = {}  # Dictionary to store the video file path for each user
+user_data = {}  # Dictionary to store video and user data
 
 # Function to show progress for downloads/uploads
 async def progress_bar(current, total, message, status):
@@ -25,19 +22,7 @@ async def progress_bar(current, total, message, status):
 # Start message
 @bot.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video, and then send the audio file you want to merge with it!")
-
-# Function to ask for the new file name
-async def ask_for_name(client, message):
-    await message.reply("Please provide a new name for the merged video (without the extension).")
-    
-    # Listen for user's reply with the new name
-    try:
-        name_msg = await client.listen_for_text(message.chat.id, timeout=30)  # Wait for the user's response
-        return name_msg.text.strip()
-    except asyncio.TimeoutError:
-        await message.reply("No name provided. Merging process aborted due to timeout.")
-        return None
+    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video first, and then send the audio file you want to merge with it!")
 
 # Function to handle video file uploads
 @bot.on_message(filters.video | filters.document)
@@ -47,9 +32,9 @@ async def handle_video(client, message):
 
         # Download the video file
         video_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, video_progress, "Downloading video")))
-        
-        # Store the video file path for this user
-        user_video[message.from_user.id] = video_file
+
+        # Store the video file path and user ID for this user
+        user_data[message.from_user.id] = {"video": video_file}
         await message.reply("Video received! Now, please send the audio file you want to merge with the video.")
     else:
         await message.reply("Please send a valid video file.")
@@ -60,7 +45,7 @@ async def handle_audio(client, message):
     user_id = message.from_user.id
 
     # Check if the user has already uploaded a video
-    if user_id not in user_video:
+    if user_id not in user_data or "video" not in user_data[user_id]:
         await message.reply("Please upload a video first before sending the audio.")
         return
 
@@ -75,14 +60,20 @@ async def handle_audio(client, message):
     audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
-    new_name = await ask_for_name(client, message)
+    await message.reply("Please provide a new name for the merged video (without the extension).")
+    
+    # Wait for the user's response with the new name
+    new_name_message = await client.listen(filters.text & filters.chat(message.chat.id), timeout=30)  # Wait for the user's response
+    new_name = new_name_message.text.strip() if new_name_message else None
+
     if not new_name:
-        return  # Abort if no name is provided
+        await message.reply("No name provided. Merging process aborted due to timeout.")
+        return
 
     # Set the output file name with the new name provided by the user
     output_file = f"{new_name}.mp4"
 
-    video_file = user_video.pop(user_id)  # Get the video file path and remove from the dictionary
+    video_file = user_data[user_id].pop("video")  # Get the video file path and remove from the dictionary
 
     # FFmpeg command to remove existing audio from the video and add the new audio
     try:
