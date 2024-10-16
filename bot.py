@@ -1,175 +1,149 @@
+import subprocess
 import os
-import time
-import asyncio
+import math
 import ffmpeg
+import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message, ForceReply
 from pyrogram.errors import MessageNotModified
-from hachoir.parser import createParser
-from helper import progress_for_pyrogram
-from hachoir.metadata import extractMetadata
-from screenshot import take_screenshot  # Import the function
+from config import API_ID, API_HASH, BOT_TOKEN
 
-# Dictionary to store stream selection
-stream_selection = {}
+bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-def extract_video_duration(file_path):
-    """Extracts the duration of the video."""
-    metadata = extractMetadata(createParser(file_path))
-    duration = 0
-    if metadata and metadata.has("duration"):
-        duration = metadata.get("duration").seconds
-    return duration
 
-@Client.on_message(filters.command("stream_remove") & filters.reply)
-async def stream_remove(client, message):
-    # Send a message indicating download status
-    status_message = await message.reply("📥 Downloading video file...")
+# Replace 'YOUR_BOT_TOKEN' with your bot token from BotFather
+
+# Directory to store incoming files temporarily
+TEMP_DIR = 'temp_files'
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+def merge_video_audio(video_path, audio_path, output_path):
+    """Merges video with new audio, replacing the existing audio."""
+    command = [
+        'ffmpeg', '-y',  # Overwrite without asking
+        '-i', video_path,  # Input video
+        '-i', audio_path,  # Input audio
+        '-c:v', 'copy',  # Copy video without re-encoding
+        '-c:a', 'aac',  # Encode audio to AAC
+        '-map', '0:v:0',  # Use first video stream from the input
+        '-map', '1:a:0',  # Use audio from the new audio file
+        output_path  # Output file
+    ]
+    subprocess.run(command, check=True)
+
+def progress_bar(current, total, length=10):
+    """Generates a progress bar with the given length."""
+    progress = math.floor(current / total * length)
+    return f"{'⬡' * progress}{'⬠' * (length - progress)} {current * 100 // total}%"
+
+def download_file_with_progress(file_path, destination, chat_id):
+    """Downloads a file and sends progress to the user."""
+    downloaded_size = 0
+    total_size = bot.get_file(file_path).file_size
+
+    with open(destination, 'wb') as f:
+        for chunk in bot.download_file(file_path, as_chunk=True):
+            f.write(chunk)
+            downloaded_size += len(chunk)
+            bot.send_message(chat_id, progress_bar(downloaded_size, total_size))
+
+def upload_video_with_progress(chat_id, video_path):
+    """Uploads the merged video with a progress indicator."""
+    total_size = os.path.getsize(video_path)
+    uploaded_size = 0
+
+    def on_upload_progress(sent_bytes, total_bytes):
+        nonlocal uploaded_size
+        uploaded_size = sent_bytes
+        bot.send_message(chat_id, progress_bar(uploaded_size, total_size))
+
+    with open(video_path, 'rb') as video:
+        bot.send_video(chat_id, video, progress_callback=on_upload_progress)
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "Welcome! Send me a video or document-type video, followed by an audio file to replace the original audio.")
+
+# Store the state of the chat for incoming files
+user_files = {}
+
+@bot.message_handler(content_types=['video', 'document'])
+def handle_video(message):
+    chat_id = message.chat.id
+
+    # Handle both video and document video uploads
+    if message.content_type == 'video':
+        video_file = bot.get_file(message.video.file_id)
+        extension = ".mp4"
+    elif message.document.mime_type.startswith('video/'):
+        video_file = bot.get_file(message.document.file_id)
+        extension = os.path.splitext(message.document.file_name)[1]
+    else:
+        bot.reply_to(message, "Please send a valid video file.")
+        return
+
+    video_path = os.path.join(TEMP_DIR, video_file.file_id + extension)
 
     # Download the video file with progress
-    video_message = message.reply_to_message
-    file_path = await video_message.download(progress=progress_for_pyrogram, progress_args=("📥 Downloading video file...", status_message, time.time()))
+    bot.reply_to(message, "Downloading video...")
+    download_file_with_progress(video_file.file_path, video_path, chat_id)
 
-    # Extract video duration
-    duration = extract_video_duration(file_path)
+    user_files[chat_id] = {'video': video_path}
+    bot.reply_to(message, "Video received! Now, send the audio file.")
 
-    # Update the status message to indicate download completion
-    await status_message.edit_text("Analyzing the streams from your file 🎆...")
+@bot.message_handler(content_types=['audio', 'voice'])
+def handle_audio(message):
+    chat_id = message.chat.id
 
-    # Retrieve streams info from the video using ffmpeg
-    streams = ffmpeg.probe(file_path)["streams"]
+    # Check if the user already sent a video
+    if chat_id not in user_files or 'video' not in user_files[chat_id]:
+        bot.reply_to(message, "Please send a video first.")
+        return
 
-    # Create inline buttons for each stream
-    buttons = []
-    for index, stream in enumerate(streams):
-        lang = stream.get("tags", {}).get("language")
-        if lang is None or not lang.isalpha():  # Validate the language code
-            lang = "unknown"  # Default to 'unknown' if invalid
+    # Handle audio and voice files
+    audio_file = bot.get_file(message.audio.file_id if message.content_type == 'audio' else message.voice.file_id)
+    audio_extension = os.path.splitext(audio_file.file_path)[1] or ".mp3"
+    audio_path = os.path.join(TEMP_DIR, audio_file.file_id + audio_extension)
 
-        codec_type = stream["codec_type"]
-        button_text = f"{index + 1} {lang} {'🎵' if codec_type == 'audio' else '📜'}"
-        buttons.append([InlineKeyboardButton(button_text, callback_data=f"toggle_{index}")])
+    # Download the audio file with progress
+    bot.reply_to(message, "Downloading audio...")
+    download_file_with_progress(audio_file.file_path, audio_path, chat_id)
 
-    buttons.append([InlineKeyboardButton("Reverse Selection", callback_data="reverse_selection")])
-    buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel"), InlineKeyboardButton("Done", callback_data="done")])
+    # Save paths in user_files for merging after filename input
+    user_files[chat_id]['audio'] = audio_path
+    bot.reply_to(message, "Audio received! Now, reply with the new filename (without extension).")
 
-    # Send the buttons to the user
-    await status_message.edit_text(
-        "Now Select The Streams You Want To remove From Media.",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+@bot.message_handler(func=lambda message: message.chat.id in user_files and 'audio' in user_files[message.chat.id])
+def handle_filename(message):
+    chat_id = message.chat.id
+    new_filename = message.text.strip()
 
-    # Store initial state
-    stream_selection[message.chat.id] = [False] * len(streams)
-    stream_selection["file_path"] = file_path
-    stream_selection["duration"] = duration
-    stream_selection["status_message"] = status_message
+    if not new_filename:
+        bot.reply_to(message, "Invalid filename. Please send a valid name.")
+        return
 
-@Client.on_callback_query()
-async def callback_handler(client, callback_query):
-    user_id = callback_query.message.chat.id
-    data = callback_query.data
+    # Create the full output path with the new filename
+    output_path = os.path.join(TEMP_DIR, f"{new_filename}.mp4")
 
-    # Handling stream selection
-    if data.startswith("toggle_"):
-        index = int(data.split("_")[1])
-        stream_selection[user_id][index] = not stream_selection[user_id][index]
-        await update_buttons(callback_query)
+    try:
+        # Merge the video with the new audio
+        bot.reply_to(message, "Merging audio and video...")
+        merge_video_audio(user_files[chat_id]['video'], user_files[chat_id]['audio'], output_path)
 
-    # Handling reverse selection
-    elif data == "reverse_selection":
-        stream_selection[user_id] = [not selected for selected in stream_selection[user_id]]
-        await update_buttons(callback_query)
+        # Upload the merged video with progress
+        bot.reply_to(message, "Uploading merged video...")
+        upload_video_with_progress(chat_id, output_path)
 
-    # Handling cancellation
-    elif data == "cancel":
-        await callback_query.message.edit_text("Stream selection canceled.")
-        os.remove(stream_selection["file_path"])
-        del stream_selection[user_id]
+        # Cleanup temporary files
+        os.remove(user_files[chat_id]['video'])
+        os.remove(user_files[chat_id]['audio'])
+        os.remove(output_path)
+        del user_files[chat_id]
 
-    # Handling completion
-    elif data == "done":
-        await callback_query.message.edit_text("⏳ Processing your video...")
-        await process_video(client, callback_query.message, user_id)
+    except Exception as e:
+        bot.reply_to(message, f"An error occurred: {str(e)}")
 
-async def update_buttons(callback_query):
-    user_id = callback_query.message.chat.id
-    message = callback_query.message
-    streams = ffmpeg.probe(stream_selection["file_path"])["streams"]
-    buttons = []
-
-    for index, selected in enumerate(stream_selection[user_id]):
-        lang = streams[index].get("tags", {}).get("language")
-        if lang is None or not lang.isalpha():  # Validate the language code
-            lang = "unknown"  # Default to 'unknown' if invalid
-
-        codec_type = streams[index]["codec_type"]
-        status = "✅" if selected else ""
-        button_text = f"{index + 1} {lang} {'🎵' if codec_type == 'audio' else '📜'} {status}"
-        buttons.append([InlineKeyboardButton(button_text, callback_data=f"toggle_{index}")])
-
-    buttons.append([InlineKeyboardButton("Reverse Selection", callback_data="reverse_selection")])
-    buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel"), InlineKeyboardButton("Done", callback_data="done")])
-
-    await message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
-
-async def process_video(client, message, user_id):
-    selected_streams = stream_selection[user_id]
-    file_path = stream_selection["file_path"]
-    duration = stream_selection["duration"]
-    status_message = stream_selection["status_message"]
-    output_file = "output_" + os.path.basename(file_path)
-    caption = f"Here is your Output file 🗃️🫡"
-    thumbnail_path = "thumbnail.jpg"
-
-    # Take a screenshot at the halfway point
-    screenshot_timestamp = duration // 2  # Take screenshot at the midpoint of the video
-    take_screenshot(file_path, screenshot_timestamp, thumbnail_path)
-
-    # Ensure the thumbnail exists
-    if not os.path.exists(thumbnail_path):
-        thumbnail_path = None
-
-    # Create a list of "-map" arguments
-    map_args = []
-    for index, keep in enumerate(selected_streams):
-        if not keep:
-            map_args.extend(["-map", f"-0:{index}"])
-
-    # Run FFmpeg command
-    process = await asyncio.create_subprocess_exec(
-        "ffmpeg",
-        "-i", file_path,
-        "-map", "0",
-        "-c", "copy",
-        "-map", "-0:d",
-        "-map", "-0:s",
-        *map_args,
-        output_file
-    )
-
-    await process.communicate()
-
-    # Update status to indicate upload
-    await status_message.edit_text("📤 Uploading the processed video...")
-
-    # Upload the processed video with the thumbnail and progress
-    await client.send_video(
-        chat_id=message.chat.id,
-        video=output_file,
-        thumb=thumbnail_path,
-        caption=caption,
-        duration=duration,
-        progress=progress_for_pyrogram,
-        progress_args=("📤Uploading the video..", status_message, time.time())
-    )
-
-    # Cleanup
-    os.remove(file_path)
-    os.remove(output_file)
-    if thumbnail_path:
-        os.remove(thumbnail_path)
-    del stream_selection[user_id]
-
-    # Update the status to indicate completion
-    await status_message.edit_text("✅ Processing and upload complete!")
+# Start the bot
+if __name__ == "__main__":
+    print("Bot is running...")
+    bot.run()
