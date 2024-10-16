@@ -2,9 +2,7 @@ import os
 import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pyrogram.enums import ParseMode
 from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
-
 
 
 app = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -15,8 +13,10 @@ user_states = {}
 # Command to start the bot
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
+    user_id = message.from_user.id
+    # Initialize user state
+    user_states[user_id] = {"video": None, "audio": None}
     await message.reply("Welcome! Send a video file first, and then send an audio file to merge them.")
-    user_states[message.from_user.id] = {"video": None, "audio": None}
 
 # Function to merge video and audio
 async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
@@ -39,6 +39,10 @@ async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
 @app.on_message(filters.video)
 async def handle_video(client: Client, message: Message):
     user_id = message.from_user.id
+    # Ensure user state is initialized
+    if user_id not in user_states:
+        user_states[user_id] = {"video": None, "audio": None}
+
     # Download video file
     video_path = await client.download_media(message)
     await message.reply("Video received! Now send an audio file to merge.")
@@ -50,7 +54,11 @@ async def handle_video(client: Client, message: Message):
 @app.on_message(filters.audio | filters.document)
 async def handle_audio(client: Client, message: Message):
     user_id = message.from_user.id
-    if user_id not in user_states or user_states[user_id]["video"] is None:
+    # Ensure user state is initialized
+    if user_id not in user_states:
+        user_states[user_id] = {"video": None, "audio": None}
+
+    if user_states[user_id]["video"] is None:
         await message.reply("Please send a video file first.")
         return
 
@@ -65,7 +73,11 @@ async def handle_audio(client: Client, message: Message):
 @app.on_message(filters.text)
 async def handle_file_name(client: Client, message: Message):
     user_id = message.from_user.id
-    if user_id not in user_states or user_states[user_id]["audio"] is None:
+    # Ensure user state is initialized
+    if user_id not in user_states:
+        user_states[user_id] = {"video": None, "audio": None}
+
+    if user_states[user_id]["audio"] is None:
         await message.reply("Please send an audio file first.")
         return
 
