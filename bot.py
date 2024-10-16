@@ -55,13 +55,18 @@ async def handle_video(client, message):
         await message.reply("Please send a valid video file.")
 
 # Function to handle audio file uploads and merge them with the video
-@bot.on_message(filters.audio | (filters.document & filters.mime_type("audio/")))
+@bot.on_message(filters.audio | filters.document)
 async def handle_audio(client, message):
     user_id = message.from_user.id
 
     # Check if the user has already uploaded a video
     if user_id not in user_video:
         await message.reply("Please upload a video first before sending the audio.")
+        return
+
+    # Check if the document is an audio file
+    if message.document and not message.document.mime_type.startswith("audio/"):
+        await message.reply("Please send a valid audio file.")
         return
 
     audio_progress = await message.reply("Downloading audio...")
