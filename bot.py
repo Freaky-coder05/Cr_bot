@@ -3,9 +3,9 @@ import math
 import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN  # Import API_ID, API_HASH, and BOT_TOKEN from config.py
+from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
 
-# Initialize the bot with your API ID and hash
+# Initialize the bot
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Directory to store incoming files temporarily
@@ -34,16 +34,17 @@ def progress_bar(current, total, length=10):
     progress = math.floor(current / total * length)
     return f"{'⬡' * progress}{'⬠' * (length - progress)} {current * 100 // total}%"
 
-async def download_file_with_progress(client, file_path, destination, chat_id):
+async def download_file_with_progress(client, file_id, destination, chat_id):
     """Downloads a file and sends progress to the user."""
+    total_size = (await client.get_file(file_id)).file_size
     downloaded_size = 0
-    total_size = (await client.get_file(file_path)).file_size
 
-    with open(destination, 'wb') as f:
-        async for chunk in client.download_file(file_path, as_chunk=True):
-            f.write(chunk)
-            downloaded_size += len(chunk)
-            await client.send_message(chat_id, progress_bar(downloaded_size, total_size))
+    async with client.download_file(file_id) as file_stream:
+        with open(destination, 'wb') as f:
+            async for chunk in file_stream:
+                f.write(chunk)
+                downloaded_size += len(chunk)
+                await client.send_message(chat_id, progress_bar(downloaded_size, total_size))
 
 async def upload_video_with_progress(client, chat_id, video_path):
     """Uploads the merged video with a progress indicator."""
@@ -71,20 +72,18 @@ async def handle_video(client, message: Message):
 
     # Handle both video and document video uploads
     if message.video or is_video_document:
-        video_file = await client.get_file(message.video.file_id if message.video else message.document.file_id)
+        file_id = message.video.file_id if message.video else message.document.file_id
         extension = ".mp4" if message.video else os.path.splitext(message.document.file_name)[1]
+        video_path = os.path.join(TEMP_DIR, f"{file_id}{extension}")
+
+        # Download the video file with progress
+        await message.reply("Downloading video...")
+        await download_file_with_progress(client, file_id, video_path, chat_id)
+
+        user_files[chat_id] = {'video': video_path}
+        await message.reply("Video received! Now, send the audio file.")
     else:
         await message.reply("Please send a valid video file.")
-        return
-
-    video_path = os.path.join(TEMP_DIR, video_file.file_id + extension)
-
-    # Download the video file with progress
-    await message.reply("Downloading video...")
-    await download_file_with_progress(client, video_file.file_path, video_path, chat_id)
-
-    user_files[chat_id] = {'video': video_path}
-    await message.reply("Video received! Now, send the audio file.")
 
 @app.on_message(filters.audio | filters.voice)
 async def handle_audio(client, message: Message):
@@ -96,13 +95,12 @@ async def handle_audio(client, message: Message):
         return
 
     # Handle audio and voice files
-    audio_file = await client.get_file(message.audio.file_id if message.content_type == 'audio' else message.voice.file_id)
-    audio_extension = os.path.splitext(audio_file.file_path)[1] or ".mp3"
-    audio_path = os.path.join(TEMP_DIR, audio_file.file_id + audio_extension)
+    audio_file = message.audio if message.audio else message.voice
+    audio_path = os.path.join(TEMP_DIR, f"{audio_file.file_id}.mp3")  # Use a default extension
 
     # Download the audio file with progress
     await message.reply("Downloading audio...")
-    await download_file_with_progress(client, audio_file.file_path, audio_path, chat_id)
+    await download_file_with_progress(client, audio_file.file_id, audio_path, chat_id)
 
     # Save paths in user_files for merging after filename input
     user_files[chat_id]['audio'] = audio_path
