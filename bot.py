@@ -1,22 +1,21 @@
 import os
-import math
 import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+import asyncio
 from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
 
-# Initialize the bot
+
 app = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Directory to store incoming files temporarily
-TEMP_DIR = 'temp_files'
-os.makedirs(TEMP_DIR, exist_ok=True)
+# Command to start the bot
+@app.on_message(filters.command("start"))
+async def start_command(client: Client, message: Message):
+    await message.reply("Welcome! Send a video file first, and then send an audio file to merge them.")
 
-# Store the state of the chat for incoming files
-user_files = {}
-
-def merge_video_audio(video_path, audio_path, output_path):
-    """Merges video with new audio, replacing the existing audio."""
+# Function to merge video and audio
+async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
+    # FFmpeg command to replace existing audio with new audio
     command = [
         'ffmpeg', '-y',  # Overwrite without asking
         '-i', video_path,  # Input video
@@ -27,116 +26,47 @@ def merge_video_audio(video_path, audio_path, output_path):
         '-map', '1:a:0',  # Use audio from the new audio file
         output_path  # Output file
     ]
-    subprocess.run(command, check=True)
+    
+    # Run the command
+    subprocess.run(command)
 
-def progress_bar(current, total, length=10):
-    """Generates a progress bar with the given length."""
-    progress = math.floor(current / total * length)
-    return f"{'⬡' * progress}{'⬠' * (length - progress)} {current * 100 // total}%"
+# Handle video file
+@app.on_message(filters.video)
+async def handle_video(client: Client, message: Message):
+    # Download video file
+    video_path = await client.download_media(message)
+    await message.reply("Video received! Now send an audio file to merge.")
 
-async def download_file_with_progress(client, file_id, destination, chat_id):
-    """Downloads a file and sends progress to the user."""
-    async with client.download_file(file_id) as file_stream:
-        total_size = file_stream.size  # Get total file size from the stream
-        downloaded_size = 0
+    # Wait for the audio file
+    audio_message = await client.listen(message.chat.id)
 
-        with open(destination, 'wb') as f:
-            async for chunk in file_stream:
-                f.write(chunk)
-                downloaded_size += len(chunk)
-                await client.send_message(chat_id, progress_bar(downloaded_size, total_size))
+    if audio_message.audio or audio_message.document:
+        audio_path = await client.download_media(audio_message)
 
-async def upload_video_with_progress(client, chat_id, video_path):
-    """Uploads the merged video with a progress indicator."""
-    total_size = os.path.getsize(video_path)
-    uploaded_size = 0
+        # Ask for a new file name
+        await message.reply("Please send the new file name (without extension) for the merged file.")
+        
+        # Listen for the new file name
+        name_message = await client.listen(message.chat.id)
+        new_file_name = name_message.text.strip()  # Get the file name from the user's message
 
-    async def on_upload_progress(sent_bytes, total_bytes):
-        nonlocal uploaded_size
-        uploaded_size = sent_bytes
-        await client.send_message(chat_id, progress_bar(uploaded_size, total_size))
+        # Create output file path
+        output_path = f"{new_file_name}.mp4"  # Set output file with .mp4 extension
 
-    with open(video_path, 'rb') as video:
-        await client.send_video(chat_id, video, progress_callback=on_upload_progress)
+        await message.reply("Merging video and audio...")
 
-@app.on_message(filters.command("start"))
-async def send_welcome(client, message: Message):
-    await message.reply("Welcome! Send me a video or document-type video, followed by an audio file to replace the original audio.")
+        # Merge video and audio
+        await merge_video_audio(video_path, audio_path, output_path)
 
-@app.on_message(filters.video | filters.document)
-async def handle_video(client, message: Message):
-    chat_id = message.chat.id
+        await message.reply_document(output_path)
 
-    # Determine if the document is a video
-    is_video_document = message.document.mime_type.startswith('video/') if message.document else False
-
-    # Handle both video and document video uploads
-    if message.video or is_video_document:
-        file_id = message.video.file_id if message.video else message.document.file_id
-        extension = ".mp4" if message.video else os.path.splitext(message.document.file_name)[1]
-        video_path = os.path.join(TEMP_DIR, f"{file_id}{extension}")
-
-        # Download the video file with progress
-        await message.reply("Downloading video...")
-        await download_file_with_progress(client, file_id, video_path, chat_id)
-
-        user_files[chat_id] = {'video': video_path}
-        await message.reply("Video received! Now, send the audio file.")
-    else:
-        await message.reply("Please send a valid video file.")
-
-@app.on_message(filters.audio | filters.voice)
-async def handle_audio(client, message: Message):
-    chat_id = message.chat.id
-
-    # Check if the user already sent a video
-    if chat_id not in user_files or 'video' not in user_files[chat_id]:
-        await message.reply("Please send a video first.")
-        return
-
-    # Handle audio and voice files
-    audio_file = message.audio if message.audio else message.voice
-    audio_path = os.path.join(TEMP_DIR, f"{audio_file.file_id}.mp3")  # Use a default extension
-
-    # Download the audio file with progress
-    await message.reply("Downloading audio...")
-    await download_file_with_progress(client, audio_file.file_id, audio_path, chat_id)
-
-    # Save paths in user_files for merging after filename input
-    user_files[chat_id]['audio'] = audio_path
-    await message.reply("Audio received! Now, reply with the new filename (without extension).")
-
-@app.on_message(filters.text & filters.user(list(user_files.keys())))
-async def handle_filename(client, message: Message):
-    chat_id = message.chat.id
-    new_filename = message.text.strip()
-
-    if not new_filename:
-        await message.reply("Invalid filename. Please send a valid name.")
-        return
-
-    # Create the full output path with the new filename
-    output_path = os.path.join(TEMP_DIR, f"{new_filename}.mp4")
-
-    try:
-        # Merge the video with the new audio
-        await message.reply("Merging audio and video...")
-        merge_video_audio(user_files[chat_id]['video'], user_files[chat_id]['audio'], output_path)
-
-        # Upload the merged video with progress
-        await message.reply("Uploading merged video...")
-        await upload_video_with_progress(client, chat_id, output_path)
-
-        # Cleanup temporary files
-        os.remove(user_files[chat_id]['video'])
-        os.remove(user_files[chat_id]['audio'])
+        # Clean up files
+        os.remove(video_path)
+        os.remove(audio_path)
         os.remove(output_path)
-        del user_files[chat_id]
 
-    except Exception as e:
-        await message.reply(f"An error occurred: {str(e)}")
+    else:
+        await message.reply("Please send a valid audio file.")
 
-# Start the bot
 if __name__ == "__main__":
-    print("Bot is running...")
     app.run()
