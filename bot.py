@@ -6,9 +6,9 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import MessageNotModified
 from hachoir.parser import createParser
-from helper.utils import progress_for_pyrogram
+from helper import progress_for_pyrogram
 from hachoir.metadata import extractMetadata
-from plugins.screenshot import take_screenshot  # Import the function
+from screenshot import take_screenshot  # Import the function
 
 # Dictionary to store stream selection
 stream_selection = {}
