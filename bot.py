@@ -62,17 +62,17 @@ async def upload_video_with_progress(client, chat_id, video_path):
 async def send_welcome(client, message: Message):
     await message.reply("Welcome! Send me a video or document-type video, followed by an audio file to replace the original audio.")
 
-@app.on_message(filters.video | filters.document.mime_type.startswith('video/'))
+@app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
     chat_id = message.chat.id
 
+    # Determine if the document is a video
+    is_video_document = message.document.mime_type.startswith('video/') if message.document else False
+
     # Handle both video and document video uploads
-    if message.video:
-        video_file = await client.get_file(message.video.file_id)
-        extension = ".mp4"
-    elif message.document.mime_type.startswith('video/'):
-        video_file = await client.get_file(message.document.file_id)
-        extension = os.path.splitext(message.document.file_name)[1]
+    if message.video or is_video_document:
+        video_file = await client.get_file(message.video.file_id if message.video else message.document.file_id)
+        extension = ".mp4" if message.video else os.path.splitext(message.document.file_name)[1]
     else:
         await message.reply("Please send a valid video file.")
         return
