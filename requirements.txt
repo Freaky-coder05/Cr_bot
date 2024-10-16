@@ -5,3 +5,4 @@ ffmpeg-python==0.2.0
 python-dotenv
 asyncio==3.4.3
 pillow
+hachoir
