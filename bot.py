@@ -36,13 +36,10 @@ def progress_bar(current, total, length=10):
 
 async def download_file_with_progress(client, file_id, destination, chat_id):
     """Downloads a file and sends progress to the user."""
-    # Use `client.get_file` to get file information
-    file_info = await client.get_file(file_id)
-
-    total_size = file_info.file_size  # Get the file size from the info
-    downloaded_size = 0
-
     async with client.download_file(file_id) as file_stream:
+        total_size = file_stream.size  # Get total file size from the stream
+        downloaded_size = 0
+
         with open(destination, 'wb') as f:
             async for chunk in file_stream:
                 f.write(chunk)
