@@ -1,21 +1,16 @@
+import telebot
 import subprocess
 import os
 import math
-import ffmpeg
-import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import Message, ForceReply
-from pyrogram.errors import MessageNotModified
-from config import API_ID, API_HASH, BOT_TOKEN
+from config import BOT_TOKEN  # Import BOT_TOKEN from config.py
 
-bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-
-# Replace 'YOUR_BOT_TOKEN' with your bot token from BotFather
+# Initialize the bot with your token
+bot = telebot.TeleBot(BOT_TOKEN)
 
 # Directory to store incoming files temporarily
 TEMP_DIR = 'temp_files'
 os.makedirs(TEMP_DIR, exist_ok=True)
+
 
 def merge_video_audio(video_path, audio_path, output_path):
     """Merges video with new audio, replacing the existing audio."""
