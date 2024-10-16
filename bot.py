@@ -69,7 +69,7 @@ async def merge_video_audio(client, message):
         await message.reply("Merging video and audio...")
 
         # Merge video with the new audio
-        ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map="0:v:0", map="1:a:0").run()
+        ffmpeg.input(video_file).output(audio_file, video_bitrate="500k", audio_bitrate="192k").output(output_file).run()
 
         await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
