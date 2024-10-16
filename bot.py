@@ -1,119 +1,175 @@
 import os
-import ffmpeg
+import time
 import asyncio
+import ffmpeg
 from pyrogram import Client, filters
-from pyrogram.types import Message, ForceReply
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import MessageNotModified
-from config import API_ID, API_HASH, BOT_TOKEN
+from hachoir.parser import createParser
+from helper.utils import progress_for_pyrogram
+from hachoir.metadata import extractMetadata
+from plugins.screenshot import take_screenshot  # Import the function
 
-bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Dictionary to store stream selection
+stream_selection = {}
 
-user_data = {}  # Dictionary to store video and user data
+def extract_video_duration(file_path):
+    """Extracts the duration of the video."""
+    metadata = extractMetadata(createParser(file_path))
+    duration = 0
+    if metadata and metadata.has("duration"):
+        duration = metadata.get("duration").seconds
+    return duration
 
-# Function to show progress for downloads/uploads
-async def progress_bar(current, total, message, status):
-    try:
-        percent = current * 100 / total
-        progress_message = f"{status}: {percent:.1f}%\n{current / 1024 / 1024:.1f}MB of {total / 1024 / 1024:.1f}MB"
-        await message.edit(progress_message)
-    except MessageNotModified:
-        pass
+@Client.on_message(filters.command("stream_remove") & filters.reply)
+async def stream_remove(client, message):
+    # Send a message indicating download status
+    status_message = await message.reply("📥 Downloading video file...")
 
-# Start message
-@bot.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video first, and then send the audio file you want to merge with it!")
+    # Download the video file with progress
+    video_message = message.reply_to_message
+    file_path = await video_message.download(progress=progress_for_pyrogram, progress_args=("📥 Downloading video file...", status_message, time.time()))
 
-# Function to handle video file uploads
-@bot.on_message(filters.video | filters.document)
-async def handle_video(client, message):
-    if message.video or (message.document and message.document.mime_type.startswith("video/")):
-        video_progress = await message.reply("Downloading video...")
+    # Extract video duration
+    duration = extract_video_duration(file_path)
 
-        # Download the video file
-        video_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, video_progress, "Downloading video")))
+    # Update the status message to indicate download completion
+    await status_message.edit_text("Analyzing the streams from your file 🎆...")
 
-        # Store the video file path and user ID for this user
-        user_data[message.from_user.id] = {"video": video_file}
-        await message.reply("Video received! Now, please send the audio file you want to merge with the video.")
-    else:
-        await message.reply("Please send a valid video file.")
+    # Retrieve streams info from the video using ffmpeg
+    streams = ffmpeg.probe(file_path)["streams"]
 
-# Function to handle audio file uploads and merge them with the video
-@bot.on_message(filters.audio | filters.document)
-async def handle_audio(client, message):
-    user_id = message.from_user.id
+    # Create inline buttons for each stream
+    buttons = []
+    for index, stream in enumerate(streams):
+        lang = stream.get("tags", {}).get("language")
+        if lang is None or not lang.isalpha():  # Validate the language code
+            lang = "unknown"  # Default to 'unknown' if invalid
 
-    # Check if the user has already uploaded a video
-    if user_id not in user_data or "video" not in user_data[user_id]:
-        await message.reply("Please upload a video first before sending the audio.")
-        return
+        codec_type = stream["codec_type"]
+        button_text = f"{index + 1} {lang} {'🎵' if codec_type == 'audio' else '📜'}"
+        buttons.append([InlineKeyboardButton(button_text, callback_data=f"toggle_{index}")])
 
-    # Check if the document is an audio file
-    if message.document and not message.document.mime_type.startswith("audio/"):
-        await message.reply("Please send a valid audio file.")
-        return
+    buttons.append([InlineKeyboardButton("Reverse Selection", callback_data="reverse_selection")])
+    buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel"), InlineKeyboardButton("Done", callback_data="done")])
 
-    audio_progress = await message.reply("Downloading audio...")
+    # Send the buttons to the user
+    await status_message.edit_text(
+        "Now Select The Streams You Want To remove From Media.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-    # Download the audio file
-    audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
+    # Store initial state
+    stream_selection[message.chat.id] = [False] * len(streams)
+    stream_selection["file_path"] = file_path
+    stream_selection["duration"] = duration
+    stream_selection["status_message"] = status_message
 
-    # Ask the user for a new name for the output file
-    await message.reply("Please provide a new name for the merged video (without the extension).", reply_markup=ForceReply())
+@Client.on_callback_query()
+async def callback_handler(client, callback_query):
+    user_id = callback_query.message.chat.id
+    data = callback_query.data
 
-    # Wait for the user's response with the new name
-    @bot.on_message(filters.text & filters.chat(message.chat.id))
-    async def ask_for_name(client, new_name_message):
-        new_name = new_name_message.text.strip()
-        if not new_name:
-            await new_name_message.reply("No name provided. Merging process aborted.")
-            return
+    # Handling stream selection
+    if data.startswith("toggle_"):
+        index = int(data.split("_")[1])
+        stream_selection[user_id][index] = not stream_selection[user_id][index]
+        await update_buttons(callback_query)
 
-        # Ensure we have the video path
-        video_info = user_data.get(user_id)
-        if video_info is None or "video" not in video_info:
-            await new_name_message.reply("No video found for merging.")
-            return
+    # Handling reverse selection
+    elif data == "reverse_selection":
+        stream_selection[user_id] = [not selected for selected in stream_selection[user_id]]
+        await update_buttons(callback_query)
 
-        video_file = video_info["video"]  # Get the video file path
+    # Handling cancellation
+    elif data == "cancel":
+        await callback_query.message.edit_text("Stream selection canceled.")
+        os.remove(stream_selection["file_path"])
+        del stream_selection[user_id]
 
-        # Set the output file name with the new name provided by the user
-        output_file = f"{new_name}.mp4"
+    # Handling completion
+    elif data == "done":
+        await callback_query.message.edit_text("⏳ Processing your video...")
+        await process_video(client, callback_query.message, user_id)
 
-        try:
-            await new_name_message.reply("Merging video and audio...")
+async def update_buttons(callback_query):
+    user_id = callback_query.message.chat.id
+    message = callback_query.message
+    streams = ffmpeg.probe(stream_selection["file_path"])["streams"]
+    buttons = []
 
-            # Merge video with the new audio
-            'ffmpeg', '-i', video_file, '-i', audio_file, 
-            '-c:v', 'copy', '-map', '0:v:0', '-map', '1:a:0', 
-            '-shortest', '-y', output_file
-            await new_name_message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
+    for index, selected in enumerate(stream_selection[user_id]):
+        lang = streams[index].get("tags", {}).get("language")
+        if lang is None or not lang.isalpha():  # Validate the language code
+            lang = "unknown"  # Default to 'unknown' if invalid
 
-            # Upload the merged file with a progress bar
-            upload_progress = await new_name_message.reply("Uploading file...")
-            await client.send_document(
-                chat_id=new_name_message.chat.id,
-                document=output_file,
-                progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
-            )
+        codec_type = streams[index]["codec_type"]
+        status = "✅" if selected else ""
+        button_text = f"{index + 1} {lang} {'🎵' if codec_type == 'audio' else '📜'} {status}"
+        buttons.append([InlineKeyboardButton(button_text, callback_data=f"toggle_{index}")])
 
-        except ffmpeg.Error as e:
-            error_message = e.stderr.decode()  # Capture the error output
-            await new_name_message.reply(f"An error occurred during merging:\n{error_message}")
+    buttons.append([InlineKeyboardButton("Reverse Selection", callback_data="reverse_selection")])
+    buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel"), InlineKeyboardButton("Done", callback_data="done")])
 
-        except Exception as e:
-            await new_name_message.reply(f"An unexpected error occurred: {str(e)}")
+    await message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
 
-        finally:
-            # Clean up
-            os.remove(video_file)
-            os.remove(audio_file)
-            if os.path.exists(output_file):
-                os.remove(output_file)
+async def process_video(client, message, user_id):
+    selected_streams = stream_selection[user_id]
+    file_path = stream_selection["file_path"]
+    duration = stream_selection["duration"]
+    status_message = stream_selection["status_message"]
+    output_file = "output_" + os.path.basename(file_path)
+    caption = f"Here is your Output file 🗃️🫡"
+    thumbnail_path = "thumbnail.jpg"
 
-    # Prevent multiple handlers for the same user
-    await asyncio.sleep(30)  # Wait 30 seconds before allowing another input to avoid conflicts
+    # Take a screenshot at the halfway point
+    screenshot_timestamp = duration // 2  # Take screenshot at the midpoint of the video
+    take_screenshot(file_path, screenshot_timestamp, thumbnail_path)
 
-if __name__ == "__main__":
-    bot.run()
+    # Ensure the thumbnail exists
+    if not os.path.exists(thumbnail_path):
+        thumbnail_path = None
+
+    # Create a list of "-map" arguments
+    map_args = []
+    for index, keep in enumerate(selected_streams):
+        if not keep:
+            map_args.extend(["-map", f"-0:{index}"])
+
+    # Run FFmpeg command
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-i", file_path,
+        "-map", "0",
+        "-c", "copy",
+        "-map", "-0:d",
+        "-map", "-0:s",
+        *map_args,
+        output_file
+    )
+
+    await process.communicate()
+
+    # Update status to indicate upload
+    await status_message.edit_text("📤 Uploading the processed video...")
+
+    # Upload the processed video with the thumbnail and progress
+    await client.send_video(
+        chat_id=message.chat.id,
+        video=output_file,
+        thumb=thumbnail_path,
+        caption=caption,
+        duration=duration,
+        progress=progress_for_pyrogram,
+        progress_args=("📤Uploading the video..", status_message, time.time())
+    )
+
+    # Cleanup
+    os.remove(file_path)
+    os.remove(output_file)
+    if thumbnail_path:
+        os.remove(thumbnail_path)
+    del stream_selection[user_id]
+
+    # Update the status to indicate completion
+    await status_message.edit_text("✅ Processing and upload complete!")
