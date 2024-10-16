@@ -2,7 +2,7 @@ import os
 import ffmpeg
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message, ReplyKeyboardMarkup, ForceReply
+from pyrogram.types import Message, ForceReply
 from pyrogram.errors import MessageNotModified
 from config import API_ID, API_HASH, BOT_TOKEN
 
@@ -80,7 +80,7 @@ async def handle_audio(client, message):
             await message.reply("Merging video and audio...")
 
             # Merge video with the new audio
-            ffmpeg.input(video_file).output(audio_file, codec="copy", shortest=None, map="0:v:0", map="1:a:0").run(overwrite_output=True)
+            ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map="0:v:0", map="1:a:0").run(overwrite_output=True)
 
             await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
