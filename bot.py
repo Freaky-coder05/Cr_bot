@@ -2,7 +2,7 @@ import os
 import ffmpeg
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, ReplyKeyboardMarkup, ForceReply
 from pyrogram.errors import MessageNotModified
 from config import API_ID, API_HASH, BOT_TOKEN
 
@@ -60,46 +60,50 @@ async def handle_audio(client, message):
     audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
-    await message.reply("Please provide a new name for the merged video (without the extension).")
-    
+    await message.reply("Please provide a new name for the merged video (without the extension).", reply_markup=ForceReply())
+
     # Wait for the user's response with the new name
-    new_name_message = await client.listen(filters.text & filters.chat(message.chat.id), timeout=30)  # Wait for the user's response
-    new_name = new_name_message.text.strip() if new_name_message else None
+    @bot.on_message(filters.text & filters.chat(message.chat.id))
+    async def ask_for_name(client, new_name_message):
+        new_name = new_name_message.text.strip()
+        if not new_name:
+            await new_name_message.reply("No name provided. Merging process aborted.")
+            return
 
-    if not new_name:
-        await message.reply("No name provided. Merging process aborted due to timeout.")
-        return
+        # Set the output file name with the new name provided by the user
+        output_file = f"{new_name}.mp4"
 
-    # Set the output file name with the new name provided by the user
-    output_file = f"{new_name}.mp4"
+        video_file = user_data[user_id].pop("video")  # Get the video file path and remove from the dictionary
 
-    video_file = user_data[user_id].pop("video")  # Get the video file path and remove from the dictionary
+        # FFmpeg command to remove existing audio from the video and add the new audio
+        try:
+            await message.reply("Merging video and audio...")
 
-    # FFmpeg command to remove existing audio from the video and add the new audio
-    try:
-        await message.reply("Merging video and audio...")
+            # Merge video with the new audio
+            ffmpeg.input(video_file).output(audio_file).output(output_file, codec="copy").run()
 
-        # Merge video with the new audio
-        ffmpeg.input(video_file).output(audio_file).output(output_file, codec="copy").run()
+            await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
-        await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
+            # Upload the merged file with a progress bar
+            upload_progress = await message.reply("Uploading file...")
+            await client.send_document(
+                chat_id=message.chat.id,
+                document=output_file,
+                progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
+            )
 
-        # Upload the merged file with a progress bar
-        upload_progress = await message.reply("Uploading file...")
-        await message.reply_document(
-            document=output_file,
-            progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
-        )
+        except Exception as e:
+            await message.reply(f"An error occurred: {str(e)}")
 
-    except Exception as e:
-        await message.reply(f"An error occurred: {str(e)}")
+        finally:
+            # Clean up
+            os.remove(video_file)
+            os.remove(audio_file)
+            if os.path.exists(output_file):
+                os.remove(output_file)
 
-    finally:
-        # Clean up
-        os.remove(video_file)
-        os.remove(audio_file)
-        if os.path.exists(output_file):
-            os.remove(output_file)
+    # Prevent multiple handlers for the same user
+    await asyncio.sleep(30)  # Wait 30 seconds before allowing another input to avoid conflicts
 
 if __name__ == "__main__":
     bot.run()
