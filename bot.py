@@ -60,7 +60,7 @@ async def handle_audio(client, message):
     audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
-    await message.reply("Please provide a new name for the merged video (without the extension).")
+    await message.reply("Please provide a new name for the merged video (without the extension).", reply_markup=ForceReply())
 
     # Wait for the user's response with the new name
     @bot.on_message(filters.text & filters.chat(message.chat.id))
@@ -70,34 +70,39 @@ async def handle_audio(client, message):
             await new_name_message.reply("No name provided. Merging process aborted.")
             return
 
+        # Ensure we have the video path
+        video_info = user_data.get(user_id)
+        if video_info is None or "video" not in video_info:
+            await new_name_message.reply("No video found for merging.")
+            return
+
+        video_file = video_info["video"]  # Get the video file path
+
         # Set the output file name with the new name provided by the user
         output_file = f"{new_name}.mp4"
 
-        video_file = user_data[user_id].pop("video")  # Get the video file path and remove from the dictionary
-
-        # FFmpeg command to remove existing audio from the video and add the new audio
         try:
-            await message.reply("Merging video and audio...")
+            await new_name_message.reply("Merging video and audio...")
 
             # Merge video with the new audio
-            ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map=["0:v:0", "1:a:0"]).run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            ffmpeg.input(video_file).input(audio_file).output(output_file, codec="copy", shortest=None, map="0:v:0", map="1:a:0").run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
 
-            await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
+            await new_name_message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
             # Upload the merged file with a progress bar
-            upload_progress = await message.reply("Uploading file...")
+            upload_progress = await new_name_message.reply("Uploading file...")
             await client.send_document(
-                chat_id=message.chat.id,
+                chat_id=new_name_message.chat.id,
                 document=output_file,
                 progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
             )
 
         except ffmpeg.Error as e:
             error_message = e.stderr.decode()  # Capture the error output
-            await message.reply(f"An error occurred during merging:\n{error_message}")
+            await new_name_message.reply(f"An error occurred during merging:\n{error_message}")
 
         except Exception as e:
-            await message.reply(f"An unexpected error occurred: {str(e)}")
+            await new_name_message.reply(f"An unexpected error occurred: {str(e)}")
 
         finally:
             # Clean up
