@@ -3,7 +3,8 @@ import ffmpeg
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import MessageNotModified, MessageTimeout
+from pyrogram.errors import MessageNotModified
+import time
 
 # Load configuration from config.py
 from config import API_ID, API_HASH, BOT_TOKEN
@@ -32,8 +33,8 @@ async def ask_for_name(client, message):
     try:
         name_msg = await client.listen_for_text(message.chat.id, timeout=30)  # Wait for the user's response
         return name_msg.text.strip()
-    except MessageTimeout:
-        await message.reply("No name provided. Merging process aborted.")
+    except asyncio.TimeoutError:
+        await message.reply("No name provided. Merging process aborted due to timeout.")
         return None
 
 @bot.on_message(filters.command(["merge_video_audio"]) & filters.reply)
@@ -53,7 +54,7 @@ async def merge_video_audio(client, message):
     # Wait for the user to upload the audio file (audio/document filter)
     try:
         audio_msg = await client.listen_for_media(message.chat.id, filters.audio | filters.document, timeout=60)
-    except MessageTimeout:
+    except asyncio.TimeoutError:
         await message.reply("Audio file upload timed out. Please try again.")
         return
 
