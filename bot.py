@@ -6,7 +6,7 @@ from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN  # Import API_ID, API_HASH, and BOT_TOKEN from config.py
 
 # Initialize the bot with your API ID and hash
-app = Client("my_bot", api_id=API_ID, api_hash=API_HASH)
+app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Directory to store incoming files temporarily
 TEMP_DIR = 'temp_files'
