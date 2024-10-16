@@ -3,8 +3,7 @@ import ffmpeg
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import MessageNotModified
-import time
+from pyrogram.errors import MessageNotModified, MessageTimeout
 
 # Load configuration from config.py
 from config import API_ID, API_HASH, BOT_TOKEN
@@ -20,6 +19,23 @@ async def progress_bar(current, total, message, status):
     except MessageNotModified:
         pass
 
+# Start message
+@bot.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video and audio file, and I'll merge them!")
+
+# Function to ask for the new file name
+async def ask_for_name(client, message):
+    await message.reply("Please provide a new name for the merged video (without the extension).")
+    
+    # Listen for user's reply with the new name
+    try:
+        name_msg = await client.listen_for_text(message.chat.id, timeout=30)  # Wait for the user's response
+        return name_msg.text.strip()
+    except MessageTimeout:
+        await message.reply("No name provided. Merging process aborted.")
+        return None
+
 @bot.on_message(filters.command(["merge_video_audio"]) & filters.reply)
 async def merge_video_audio(client, message):
     if not message.reply_to_message:
@@ -27,18 +43,21 @@ async def merge_video_audio(client, message):
         return
 
     video_msg = message.reply_to_message
-    if not video_msg.video and not video_msg.document:
-        await message.reply("Please reply to a video file.")
+    if not (video_msg.video or video_msg.document):
+        await message.reply("Please reply to a valid video file.")
         return
 
     # Ask the user to upload the audio file
-    await message.reply("Please upload the audio file to merge with the video.")
+    await message.reply("Please upload the audio file to merge with the video (must be in MP3, AAC, or other supported formats).")
 
-    # Wait for the user to upload the audio file
-    response = await client.listen(message.chat.id, filters=filters.audio | filters.document)
+    # Wait for the user to upload the audio file (audio/document filter)
+    try:
+        audio_msg = await client.listen_for_media(message.chat.id, filters.audio | filters.document, timeout=60)
+    except MessageTimeout:
+        await message.reply("Audio file upload timed out. Please try again.")
+        return
 
-    audio_msg = response
-    if not audio_msg.audio and not audio_msg.document:
+    if not (audio_msg.audio or audio_msg.document):
         await message.reply("Please upload a valid audio file.")
         return
 
@@ -51,15 +70,9 @@ async def merge_video_audio(client, message):
     audio_file = await audio_msg.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
-    await message.reply("Please provide a new name for the merged video (without the extension).")
-
-    # Wait for the user's response with the new name
-    new_name_msg = await client.listen(message.chat.id, filters=filters.text)
-    new_name = new_name_msg.text.strip()
-
+    new_name = await ask_for_name(client, message)
     if not new_name:
-        await message.reply("Invalid name. Merging process aborted.")
-        return
+        return  # Abort if no name is provided
 
     # Set the output file name with the new name provided by the user
     output_file = f"{new_name}.mp4"
@@ -69,7 +82,7 @@ async def merge_video_audio(client, message):
         await message.reply("Merging video and audio...")
 
         # Merge video with the new audio
-        ffmpeg.input(video_file).output(audio_file, video_bitrate="500k", audio_bitrate="192k").output(output_file).run()
+        ffmpeg.input(video_file).output(audio_file).output(output_file, codec="copy").run()
 
         await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
