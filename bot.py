@@ -141,4 +141,4 @@ def handle_filename(message):
 # Start the bot
 if __name__ == "__main__":
     print("Bot is running...")
-    bot.run()
+    bot.polling()
