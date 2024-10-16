@@ -11,6 +11,8 @@ from config import API_ID, API_HASH, BOT_TOKEN
 
 bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+user_video = {}  # Dictionary to store the video file path for each user
+
 # Function to show progress for downloads/uploads
 async def progress_bar(current, total, message, status):
     try:
@@ -23,7 +25,7 @@ async def progress_bar(current, total, message, status):
 # Start message
 @bot.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video and audio file, and I'll merge them!")
+    await message.reply("Hello! I am a Video+Audio Merger bot. Send me a video, and then send the audio file you want to merge with it!")
 
 # Function to ask for the new file name
 async def ask_for_name(client, message):
@@ -37,38 +39,35 @@ async def ask_for_name(client, message):
         await message.reply("No name provided. Merging process aborted due to timeout.")
         return None
 
-@bot.on_message(filters.command(["merge_video_audio"]) & filters.reply)
-async def merge_video_audio(client, message):
-    if not message.reply_to_message:
-        await message.reply("Please reply to a video file with this command.")
+# Function to handle video file uploads
+@bot.on_message(filters.video | filters.document)
+async def handle_video(client, message):
+    if message.video or (message.document and message.document.mime_type.startswith("video/")):
+        video_progress = await message.reply("Downloading video...")
+
+        # Download the video file
+        video_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, video_progress, "Downloading video")))
+        
+        # Store the video file path for this user
+        user_video[message.from_user.id] = video_file
+        await message.reply("Video received! Now, please send the audio file you want to merge with the video.")
+    else:
+        await message.reply("Please send a valid video file.")
+
+# Function to handle audio file uploads and merge them with the video
+@bot.on_message(filters.audio | (filters.document & filters.mime_type("audio/")))
+async def handle_audio(client, message):
+    user_id = message.from_user.id
+
+    # Check if the user has already uploaded a video
+    if user_id not in user_video:
+        await message.reply("Please upload a video first before sending the audio.")
         return
 
-    video_msg = message.reply_to_message
-    if not (video_msg.video or video_msg.document):
-        await message.reply("Please reply to a valid video file.")
-        return
-
-    # Ask the user to upload the audio file
-    await message.reply("Please upload the audio file to merge with the video (must be in MP3, AAC, or other supported formats).")
-
-    # Wait for the user to upload the audio file (audio/document filter)
-    try:
-        audio_msg = await client.listen_for_media(message.chat.id, filters.audio | filters.document, timeout=60)
-    except asyncio.TimeoutError:
-        await message.reply("Audio file upload timed out. Please try again.")
-        return
-
-    if not (audio_msg.audio or audio_msg.document):
-        await message.reply("Please upload a valid audio file.")
-        return
-
-    # Download the video file with a progress bar
-    video_progress = await message.reply("Downloading video...")
-    video_file = await video_msg.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, video_progress, "Downloading video")))
-
-    # Download the audio file with a progress bar
     audio_progress = await message.reply("Downloading audio...")
-    audio_file = await audio_msg.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
+
+    # Download the audio file
+    audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
     new_name = await ask_for_name(client, message)
@@ -77,6 +76,8 @@ async def merge_video_audio(client, message):
 
     # Set the output file name with the new name provided by the user
     output_file = f"{new_name}.mp4"
+
+    video_file = user_video.pop(user_id)  # Get the video file path and remove from the dictionary
 
     # FFmpeg command to remove existing audio from the video and add the new audio
     try:
