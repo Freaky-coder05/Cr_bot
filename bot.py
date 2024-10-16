@@ -60,7 +60,7 @@ async def handle_audio(client, message):
     audio_file = await message.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
     # Ask the user for a new name for the output file
-    await message.reply("Please provide a new name for the merged video (without the extension).", reply_markup=ForceReply())
+    await message.reply("Please provide a new name for the merged video (without the extension).")
 
     # Wait for the user's response with the new name
     @bot.on_message(filters.text & filters.chat(message.chat.id))
@@ -80,7 +80,7 @@ async def handle_audio(client, message):
             await message.reply("Merging video and audio...")
 
             # Merge video with the new audio
-            ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map=["0:v:0", "1:a:0"]).run(overwrite_output=True)
+            ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map=["0:v:0", "1:a:0"]).run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
 
             await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
@@ -92,8 +92,12 @@ async def handle_audio(client, message):
                 progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
             )
 
+        except ffmpeg.Error as e:
+            error_message = e.stderr.decode()  # Capture the error output
+            await message.reply(f"An error occurred during merging:\n{error_message}")
+
         except Exception as e:
-            await message.reply(f"An error occurred: {str(e)}")
+            await message.reply(f"An unexpected error occurred: {str(e)}")
 
         finally:
             # Clean up
