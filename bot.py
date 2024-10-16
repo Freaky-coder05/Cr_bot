@@ -1,102 +1,94 @@
 import os
-import subprocess
+import ffmpeg
+import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import MessageNotModified
+import time
 
-# Load configuration
-from config import API_ID, API_HASH, BOT_TOKEN, ADMINS, WATERMARK_PATH
+# Load configuration from config.py
+from config import API_ID, API_HASH, BOT_TOKEN
 
-app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Helper function to add watermark
-def add_watermark(video_path: str, output_path: str, watermark_path: str, position: str, transparency: float, size: str):
-    scale = "1"
-    if size == "small":
-        scale = "0.25"
-    elif size == "medium":
-        scale = "0.5"
-    elif size == "large":
-        scale = "1"
+# Function to show progress for downloads/uploads
+async def progress_bar(current, total, message, status):
+    try:
+        percent = current * 100 / total
+        progress_message = f"{status}: {percent:.1f}%\n{current / 1024 / 1024:.1f}MB of {total / 1024 / 1024:.1f}MB"
+        await message.edit(progress_message)
+    except MessageNotModified:
+        pass
 
-    cmd = [
-        "ffmpeg",
-        "-i", video_path,
-        "-i", watermark_path,
-        "-filter_complex", f"[1][0]scale={scale}*iw:{scale}*ih[wm];[0][wm]overlay={position}",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Adding transparency
-    if transparency < 1.0:
-        cmd.insert(5, "-vf")
-        cmd.insert(6, f"format=rgba, colorchannelmixer=0:0:0:{transparency}")
+@bot.on_message(filters.command(["merge_video_audio"]) & filters.reply)
+async def merge_video_audio(client, message):
+    if not message.reply_to_message:
+        await message.reply("Please reply to a video file with this command.")
+        return
 
-    subprocess.run(cmd)
+    video_msg = message.reply_to_message
+    if not video_msg.video and not video_msg.document:
+        await message.reply("Please reply to a video file.")
+        return
 
-# Helper function to remove watermark (For demonstration)
-def remove_watermark(video_path: str, output_path: str):
-    # Note: Real removal is complex and requires advanced techniques. This is a placeholder.
-    os.rename(video_path, output_path)  # Simulate by renaming
+    # Ask the user to upload the audio file
+    await message.reply("Please upload the audio file to merge with the video.")
 
-@app.on_message(filters.command("start"))
-async def start(client, message: Message):
-    await message.reply("Welcome to the Watermark Bot! Use /add_watermark or /remove_watermark or send an image to set as a watermark.")
+    # Wait for the user to upload the audio file
+    response = await client.listen(message.chat.id, filters=filters.audio | filters.document)
 
-@app.on_message(filters.command("add_watermark"))
-async def add_watermark_command(client, message: Message):
-    await message.reply("Please send a video file to add the watermark.")
+    audio_msg = response
+    if not audio_msg.audio and not audio_msg.document:
+        await message.reply("Please upload a valid audio file.")
+        return
 
-@app.on_message(filters.command("remove_watermark"))
-async def remove_watermark_command(client, message: Message):
-    await message.reply("Please send a video file to remove the watermark.")
+    # Download the video file with a progress bar
+    video_progress = await message.reply("Downloading video...")
+    video_file = await video_msg.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, video_progress, "Downloading video")))
 
-@app.on_message(filters.photo)
-async def set_watermark(client, message: Message):
-    # Save the watermark image
-    watermark_path = f"downloads/watermark_{message.photo.file_id}.png"
-    await message.download(watermark_path)
-    
-    # Update the watermark path in the configuration or globally
-    global WATERMARK_PATH
-    WATERMARK_PATH = watermark_path
+    # Download the audio file with a progress bar
+    audio_progress = await message.reply("Downloading audio...")
+    audio_file = await audio_msg.download(progress=lambda current, total: asyncio.run(progress_bar(current, total, audio_progress, "Downloading audio")))
 
-    await message.reply("Watermark added successfully ✅")
+    # Ask the user for a new name for the output file
+    await message.reply("Please provide a new name for the merged video (without the extension).")
 
-@app.on_message(filters.video)
-async def handle_video(client, message: Message):
-    # Assuming the user sent a video after the /add_watermark command
-    video_path = f"downloads/{message.video.file_id}.mp4"
-    output_path = f"downloads/output_{message.video.file_id}.mp4"
-    position = "10:10"  # Example position (x:y)
-    transparency = 0.5  # Example transparency
-    size = "medium"  # Example size
+    # Wait for the user's response with the new name
+    new_name_msg = await client.listen(message.chat.id, filters=filters.text)
+    new_name = new_name_msg.text.strip()
 
-    await message.download(video_path)
-    await message.reply("Processing video...")
+    if not new_name:
+        await message.reply("Invalid name. Merging process aborted.")
+        return
 
-    # Add watermark
-    add_watermark(video_path, output_path, WATERMARK_PATH, position, transparency, size)
+    # Set the output file name with the new name provided by the user
+    output_file = f"{new_name}.mp4"
 
-    await message.reply_video(output_path, caption="Here is your watermarked video!")
-    os.remove(video_path)
-    os.remove(output_path)
+    # FFmpeg command to remove existing audio from the video and add the new audio
+    try:
+        await message.reply("Merging video and audio...")
 
-@app.on_message(filters.video & filters.command("remove_watermark"))
-async def handle_remove_video(client, message: Message):
-    # Handle removing watermark
-    video_path = f"downloads/{message.video.file_id}.mp4"
-    output_path = f"downloads/output_{message.video.file_id}.mp4"
+        # Merge video with the new audio
+        ffmpeg.input(video_file).output(output_file, codec="copy", shortest=None, map="0:v:0", map="1:a:0").run()
 
-    await message.download(video_path)
-    await message.reply("Removing watermark...")
+        await message.reply(f"Merging complete. The file has been renamed to {new_name}. Uploading the file...")
 
-    # Simulate watermark removal
-    remove_watermark(video_path, output_path)
+        # Upload the merged file with a progress bar
+        upload_progress = await message.reply("Uploading file...")
+        await message.reply_document(
+            document=output_file,
+            progress=lambda current, total: asyncio.run(progress_bar(current, total, upload_progress, "Uploading file"))
+        )
 
-    await message.reply_video(output_path, caption="Here is your video without the watermark!")
-    os.remove(video_path)
-    os.remove(output_path)
+    except Exception as e:
+        await message.reply(f"An error occurred: {str(e)}")
+
+    finally:
+        # Clean up
+        os.remove(video_file)
+        os.remove(audio_file)
+        if os.path.exists(output_file):
+            os.remove(output_file)
 
 if __name__ == "__main__":
-    app.run()
+    bot.run()
