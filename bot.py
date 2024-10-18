@@ -53,7 +53,7 @@ def format_time(seconds):
     hrs, remainder = divmod(int(seconds), 3600)
     mins, secs = divmod(remainder, 60)
     return f"{hrs:02}:{mins:02}:{secs:02}"
-
+    
 async def add_watermark(video_path, user_id, message):
     # Fetch user-specific watermark settings or use defaults
     watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
@@ -73,43 +73,45 @@ async def add_watermark(video_path, user_id, message):
     try:
         # Run FFmpeg command to add text watermark and track progress
         command = [
-            'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
+            'ffmpeg', '-i', video_path,
             '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
             '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
-            '-c:a', 'copy', output_path
+            '-c:a', 'copy', output_path,
+            '-progress', 'pipe:1',  # Send progress info to stdout
+            '-nostats'  # Disable printing of statistics to stdout
         ]
 
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
         start_time = time.time()  # Capture start time for estimating time remaining
-
         while True:
-            stderr_line = await process.stderr.readline()
-            if stderr_line:
-                stderr_line = stderr_line.decode('utf-8').strip()
+            # Read from the process' stdout to get progress information
+            stdout_line = await process.stdout.readline()
+            if stdout_line:
+                line = stdout_line.decode('utf-8').strip()
+                # Parse FFmpeg progress information
+                if line.startswith("out_time="):
+                    time_match = re.search(r"out_time=(\d+:\d+:\d+\.\d+)", line)
+                    if time_match:
+                        current_time_str = time_match.group(1)
+                        current_time_parts = current_time_str.split(":")
+                        current_time = (float(current_time_parts[0]) * 3600 +  # hours
+                                        float(current_time_parts[1]) * 60 +    # minutes
+                                        float(current_time_parts[2]))          # seconds
 
-                # Parse the current time from FFmpeg output
-                time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", stderr_line)
-                if time_match:
-                    current_time_str = time_match.group(1)
-                    current_time_parts = current_time_str.split(":")
-                    current_time = (float(current_time_parts[0]) * 3600 +  # hours
-                                    float(current_time_parts[1]) * 60 +    # minutes
-                                    float(current_time_parts[2]))          # seconds
+                        # Calculate progress percentage
+                        progress = (current_time / total_duration) * 100
 
-                    # Calculate progress percentage
-                    progress = (current_time / total_duration) * 100
+                        # Generate progress bar
+                        progress_bar = generate_progress_bar(progress)
 
-                    # Generate progress bar
-                    progress_bar = generate_progress_bar(progress)
+                        # Estimate time remaining
+                        elapsed_time = time.time() - start_time
+                        estimated_total_time = elapsed_time / (progress / 100) if progress > 0 else 0
+                        remaining_time = estimated_total_time - elapsed_time
 
-                    # Estimate time remaining
-                    elapsed_time = time.time() - start_time
-                    estimated_total_time = elapsed_time / (progress / 100) if progress > 0 else 0
-                    remaining_time = estimated_total_time - elapsed_time
-
-                    # Update the message with progress and estimated time
-                    await message.edit(f"Adding watermark... {progress:.2f}% {progress_bar}\nEstimated time: {format_time(remaining_time)}")
+                        # Update the message with progress and estimated time
+                        await message.edit(f"Adding watermark... {progress:.2f}% {progress_bar}\nEstimated time: {format_time(remaining_time)}")
 
             if process.returncode is not None:
                 break
@@ -117,13 +119,14 @@ async def add_watermark(video_path, user_id, message):
         await process.wait()
 
         if process.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr_line}")
+            raise Exception(f"FFmpeg error: {stderr_line.decode('utf-8')}")
 
         return output_path
 
     except Exception as e:
         print(f"Error adding watermark: {e}")
         return None
+
 
 # Command to edit watermark settings
 @app.on_message(filters.command("edit_watermark"))
