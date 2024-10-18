@@ -1,108 +1,127 @@
 import os
-import subprocess
+import asyncio
+import time
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+import ffmpeg
+from config import API_ID, API_HASH, BOT_TOKEN
 
+# Configurations
+WATERMARK_PATH = "default_watermark.png"  # Default watermark path
+WATERMARK_POS = "top-left"  # Default watermark position
+WATERMARK_WIDTH = 50  # Default watermark width in pixels
+WATERMARK_OPACITY = 0.5  # Default opacity for the watermark
 
-app = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Create your bot using your token from config
+app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Create a dictionary to keep track of user states
-user_states = {}
+# Dictionary to hold user watermark settings
+user_watermarks = {}
 
-# Command to start the bot
 @app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Initialize user state
-    user_states[user_id] = {"video": None, "audio": None}
-    await message.reply("Welcome! Send a video file first, and then send an audio file to merge them.")
+async def start(client, message):
+    await message.reply_text("Hi, I am a watermark adder bot ☘️")
 
-# Function to merge video and audio
-async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
-    # FFmpeg command to replace existing audio with new audio
-    command = [
-        'ffmpeg', '-y',  # Overwrite without asking
-        '-i', video_path,  # Input video
-        '-i', audio_path,  # Input audio
-        '-c:v', 'copy',  # Copy video without re-encoding
-        '-c:a', 'aac',  # Encode audio to AAC
-        '-map', '0:v:0',  # Use first video stream from the input
-        '-map', '1:a:0',  # Use audio from the new audio file
-        output_path  # Output file
+# Valid predefined positions and their corresponding x:y coordinates
+POSITIONS = {
+    "top-left": "10:10",
+    "top-right": "main_w-overlay_w-10:10",
+    "bottom-left": "10:main_h-overlay_h-10",
+    "bottom-right": "main_w-overlay_w-10:main_h-overlay_h-10",
+    "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2"
+}
+
+async def add_watermark(video_path, user_id, progress_message):
+    # Fetch user-specific watermark settings or use defaults
+    watermark_text = user_watermarks.get(user_id, {}).get('text', 'Anime_Warrior_Tamil')  # Default watermark text
+    position = user_watermarks.get(user_id, {}).get('position', "top-left")  # Default position
+    position_xy = POSITIONS.get(position, "10:10")
+    width = user_watermarks.get(user_id, {}).get('width', 15)  # Default width in pixels
+    opacity = user_watermarks.get(user_id, {}).get('opacity', 0.5)  # Default opacity
+
+    output_path = f"watermarked_{os.path.basename(video_path)}"
+    total_steps = 10  # Define total steps for the progress bar
+    progress = 0  # Initialize progress
+
+    try:
+        # FFmpeg command to add watermark without re-encoding
+        command = [
+            'ffmpeg', '-hwaccel', 'auto', '-i', video_path,
+            '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize={width}:x={position_xy.split(':')[0]}:y={position_xy.split(':')[1]}:alpha={opacity}",
+            '-c:v', 'copy',  # No re-encoding for video
+            '-c:a', 'copy',  # No re-encoding for audio
+            output_path
+        ]
+        
+        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        start_time = time.time()  # Start time to calculate elapsed and remaining time
+
+        # Mock progress loop for watermarking
+        for i in range(total_steps):
+            await asyncio.sleep(2)  # Simulate time taken per step
+            progress += 1
+            elapsed_time = time.time() - start_time
+            estimated_time_left = (elapsed_time / progress) * (total_steps - progress)
+            progress_bar = "⬢" * progress + "⬡" * (total_steps - progress)
+
+            await progress_message.edit_text(f"Adding watermark... {progress_bar} {progress * 10}%\nEstimated time left: {int(estimated_time_left)} seconds")
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {stderr.decode()}")
+
+        return output_path
+
+    except Exception as e:
+        print(f"Error adding watermark: {e}")
+        return None
+
+# Command to edit watermark settings
+@app.on_message(filters.command("edit_watermark"))
+async def edit_watermark(client, message):
+    user_id = message.from_user.id
+
+    # Create inline buttons for adjusting watermark position, size, and transparency
+    buttons = [
+        [
+            InlineKeyboardButton("Top-Left", callback_data="pos_top_left"),
+            InlineKeyboardButton("Top-Right", callback_data="pos_top_right")
+        ],
+        [
+            InlineKeyboardButton("Bottom-Left", callback_data="pos_bottom_left"),
+            InlineKeyboardButton("Bottom-Right", callback_data="pos_bottom_right")
+        ],
+        [InlineKeyboardButton("Center", callback_data="pos_center")]
     ]
-    
-    # Run the command
-    subprocess.run(command)
 
-# Handle video file
-@app.on_message(filters.video)
-async def handle_video(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
+    await message.reply_text("Select watermark position:", reply_markup=InlineKeyboardMarkup(buttons))
 
-    # Download video file
-    video_path = await client.download_media(message)
-    await message.reply("Video received! Now send an audio file to merge.")
+# Handle video or document uploads to add watermark
+@app.on_message(filters.video | filters.document)
+async def handle_video(client, message: Message):
+    download_message = await message.reply("Downloading video...")
+    video_path = await message.download()
 
-    # Store the video path in user state
-    user_states[user_id]["video"] = video_path
+    progress_message = await message.reply("Processing...")
 
-# Handle audio file
-@app.on_message(filters.audio | filters.document)
-async def handle_audio(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
+    # Add watermark without re-encoding
+    final_video_path = await add_watermark(video_path, message.from_user.id, progress_message)
 
-    if user_states[user_id]["video"] is None:
-        await message.reply("Please send a video file first.")
-        return
+    if final_video_path is None:
+        await progress_message.edit("❌ Failed to add watermark. Please try again.")
+    else:
+        # Update the message to indicate the start of the upload process
+        await progress_message.edit("Watermark added! Uploading the video...")
 
-    # Download audio file
-    audio_path = await client.download_media(message)
-    user_states[user_id]["audio"] = audio_path
+        # Upload the final watermarked video
+        await message.reply_video(final_video_path)
 
-    # Ask for a new file name
-    await message.reply("Please send the new file name (without extension) for the merged file.")
+        # Clean up the files
+        os.remove(video_path)
+        os.remove(final_video_path)
 
-# Handle new file name
-@app.on_message(filters.text)
-async def handle_file_name(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
+        # Edit the message to show upload is complete
+        await progress_message.edit("✅ Video uploaded successfully.")
 
-    if user_states[user_id]["audio"] is None:
-        await message.reply("Please send an audio file first.")
-        return
-
-    # Get video and audio paths from user states
-    video_path = user_states[user_id]["video"]
-    audio_path = user_states[user_id]["audio"]
-    
-    # Create output file path
-    new_file_name = message.text.strip()
-    output_path = f"{new_file_name}.mp4"  # Set output file with .mp4 extension
-
-    await message.reply("Merging video and audio...")
-
-    # Merge video and audio
-    await merge_video_audio(video_path, audio_path, output_path)
-
-    await message.reply_document(output_path)
-
-    # Clean up files
-    os.remove(video_path)
-    os.remove(audio_path)
-    os.remove(output_path)
-
-    # Reset user state
-    user_states[user_id] = {"video": None, "audio": None}
-
-if __name__ == "__main__":
-    app.run()
+app.run()
