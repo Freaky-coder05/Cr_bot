@@ -6,12 +6,10 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN
 import math
 
-
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Global variable to store watermark image path
 WATERMARK_IMAGE = "watermark.png"
-
 
 async def progress_bar(current, total, message):
     percent = current * 100 / total
@@ -80,14 +78,41 @@ async def add_watermark(client, message):
     # Add watermark using FFmpeg with transparency, size, and position
     try:
         watermark_msg = await message.reply_text("Adding watermark...")
+        
+        # Run FFmpeg command and track progress
         process = (
             ffmpeg
             .input(video_path)
-            .input(WATERMARK_IMAGE, filter_complex=f"[1]format=rgba,colorchannelmixer=aa={transparency}[wm];[0][wm]overlay={x_offset}:{y_offset}:enable='between(t,0,10000)'")
-            .output(output_video, vf=f"scale=iw*{scale}:ih*{scale}", preset="ultrafast", threads=4)
+            .input(WATERMARK_IMAGE, filter_complex=f"[1]format=rgba,colorchannelmixer=aa={transparency}[wm];[0][wm]overlay={x_offset}:{y_offset}")
+            .output(output_video, vf=f"scale=iw*{scale}:ih*{scale}", preset="veryfast", threads=4)
+            .global_args('-progress', 'pipe:1', '-nostats')  # Get progress via pipe
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
-        await process.communicate()  # Wait for the process to complete
+        
+        total_duration = video.duration  # in seconds
+        current_duration = 0
+        
+        while process.poll() is None:
+            output = process.stdout.readline().decode('utf-8')
+            
+            if "out_time_ms" in output:
+                time_ms = int(output.split('=')[1].strip())
+                current_duration = time_ms / 1_000_000  # Convert to seconds
+                
+                # Calculate progress percentage
+                progress_percentage = (current_duration / total_duration) * 100
+                time_left = total_duration - current_duration
+                
+                # Update progress
+                await watermark_msg.edit_text(
+                    f"Encoding in Progress...\n"
+                    f"Time Left: {int(time_left // 60)}m, {int(time_left % 60)}s\n"
+                    f"Progress: {int(progress_percentage)}%\n"
+                    f"[{'█' * int(progress_percentage // 5)}{' ' * (20 - int(progress_percentage // 5))}]"
+                )
+                
+        # Wait for the process to complete
+        await process.communicate()
 
         # Send the watermarked video back
         await client.send_video(
@@ -96,6 +121,10 @@ async def add_watermark(client, message):
             caption="Here's your watermarked video!",
             progress=progress_bar
         )
+        
+        # Progress 100%, upload the video
+        await watermark_msg.edit_text(f"Watermarking complete. Uploading...")
+
     except Exception as e:
         await message.reply_text(f"Error adding watermark: {e}")
     finally:
@@ -106,7 +135,6 @@ async def add_watermark(client, message):
             os.remove(output_video)
 
     await download_msg.delete()
-    await watermark_msg.delete()
 
 # Inline keyboard for help
 @app.on_callback_query(filters.regex("help"))
