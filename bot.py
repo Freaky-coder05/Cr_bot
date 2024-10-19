@@ -7,9 +7,41 @@ from config import API_ID, API_HASH, BOT_TOKEN
 import math
 
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+import logging
+from pyrogram import filters
 
-# Global variable to store watermark image path
-WATERMARK_IMAGE = "watermark.png"
+# Enable logging to troubleshoot
+logging.basicConfig(level=logging.INFO)
+
+# Global variable for storing watermark image path
+WATERMARK_IMAGE = None
+
+# Set watermark image by replying to an image
+@app.on_message(filters.command("set_image") & filters.reply)
+async def set_watermark_image(client, message):
+    logging.info("Command received: /set_image")
+
+    # Check if the replied message contains a photo
+    if message.reply_to_message and message.reply_to_message.photo:
+        logging.info(f"Received image: {message.reply_to_message.photo}")
+        
+        # Download the watermark image
+        try:
+            watermark_img_path = await client.download_media(
+                message.reply_to_message.photo.file_id, file_name="watermark.png"
+            )
+            logging.info(f"Watermark image downloaded to: {watermark_img_path}")
+            
+            global WATERMARK_IMAGE
+            WATERMARK_IMAGE = watermark_img_path
+            
+            await message.reply_text("Watermark image set successfully.")
+        except Exception as e:
+            logging.error(f"Error downloading image: {e}")
+            await message.reply_text("Failed to set watermark image.")
+    else:
+        logging.warning("No photo found in the replied message.")
+        await message.reply_text("Please reply to a valid image with the /set_image command.")
 
 async def progress_bar(current, total, message):
     percent = current * 100 / total
@@ -17,19 +49,6 @@ async def progress_bar(current, total, message):
     bar = "█" * filled + "-" * (10 - filled)
     await message.edit_text(f"Progress: [{bar}] {percent:.2f}%")
 
-# Set watermark image by replying to an image
-@app.on_message(filters.command("set_image") & filters.reply & filters.photo)
-async def set_watermark_image(client, message):
-    if message.reply_to_message.photo:
-        # Download the watermark image
-        watermark_img_path = await client.download_media(
-            message.reply_to_message.photo.file_id, file_name="watermark.png"
-        )
-        global WATERMARK_IMAGE
-        WATERMARK_IMAGE = watermark_img_path
-        await message.reply_text("Watermark image set successfully.")
-    else:
-        await message.reply_text("Please reply to an image using /set_image.")
 
 # Start message
 @app.on_message(filters.command("start"))
