@@ -1,20 +1,21 @@
 import os
-import asyncio
 import ffmpeg
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN
 import math
+import logging
 
 app = Client("watermark_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-import logging
-from pyrogram import filters
 
 # Enable logging to troubleshoot
 logging.basicConfig(level=logging.INFO)
 
 # Global variable for storing watermark image path
 WATERMARK_IMAGE = None
+
+# Dictionary to store the conversation state for each user
+user_conversations = {}
 
 # Set watermark image by replying to an image
 @app.on_message(filters.command("set_image") & filters.reply)
@@ -49,7 +50,6 @@ async def progress_bar(current, total, message):
     bar = "█" * filled + "-" * (10 - filled)
     await message.edit_text(f"Progress: [{bar}] {percent:.2f}%")
 
-
 # Start message
 @app.on_message(filters.command("start"))
 async def start(client, message):
@@ -72,24 +72,41 @@ async def add_watermark(client, message):
     
     # Ask for watermark position, transparency, and size
     await message.reply_text(
-        "Please enter the watermark position, size, and transparency.\nFormat: `x_offset:y_offset:scale:transparency`\nExample: `10:10:0.5:0.7`",
+        "Please enter the watermark position, size, and transparency.\n"
+        "Format: `x_offset:y_offset:scale:transparency`\n"
+        "Example: `10:10:0.5:0.7`",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Default", callback_data="default_settings")]])
     )
     
-    # Capture the user input
-    user_input = await client.listen(message.chat.id, filters.text)
-    if not user_input:
-        return
+    # Store the user's chat ID in the conversation state
+    user_conversations[message.chat.id] = "awaiting_input"
 
-    try:
-        x_offset, y_offset, scale, transparency = map(float, user_input.text.split(":"))
-    except:
-        await message.reply_text("Invalid input format. Please try again.")
-        return
+# Handle user input for watermark settings
+@app.on_message(filters.text & filters.incoming)
+async def handle_user_input(client, message):
+    if user_conversations.get(message.chat.id) == "awaiting_input":
+        try:
+            # Process user input
+            x_offset, y_offset, scale, transparency = map(float, message.text.split(":"))
+            
+            # Reset the conversation state
+            user_conversations[message.chat.id] = None
+            
+            # Proceed with the watermarking process (call the appropriate function here)
+            await message.reply_text(f"Watermark settings received: {x_offset}, {y_offset}, {scale}, {transparency}.")
+            
+            # Continue with the video processing
+            await process_video(client, message, x_offset, y_offset, scale, transparency)
+
+        except ValueError:
+            await message.reply_text("Invalid input format. Please try again.")
+
+async def process_video(client, message, x_offset, y_offset, scale, transparency):
+    video = message.video
 
     # Download the video
     download_msg = await message.reply_text("Downloading video...")
-    video_path = await client.download_media(message.video.file_id, progress=progress_bar)
+    video_path = await client.download_media(video.file_id, progress=progress_bar)
 
     # Prepare output path
     output_video = f"watermarked_{video.file_name}"
@@ -168,6 +185,6 @@ async def default_watermark_settings(client, callback_query):
     # Default position, scale, transparency
     x_offset, y_offset, scale, transparency = 10, 10, 1.0, 1.0
 
-    callback_query.message.reply_text(f"Using default settings: {x_offset}:{y_offset}:{scale}:{transparency}")
+    await callback_query.message.reply_text(f"Using default settings: {x_offset}:{y_offset}:{scale}:{transparency}")
 
 app.run()
