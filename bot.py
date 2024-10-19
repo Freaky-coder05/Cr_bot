@@ -78,38 +78,44 @@ async def add_watermark(client, message):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Default", callback_data="default_settings")]])
     )
     
-    # Store the user's chat ID in the conversation state
-    user_conversations[message.chat.id] = "awaiting_input"
+    # Store the user's chat ID and the video file ID in the conversation state
+    user_conversations[message.chat.id] = {
+        "state": "awaiting_input",
+        "video_file_id": message.video.file_id  # Store the video file ID
+    }
 
 # Handle user input for watermark settings
 @app.on_message(filters.text & filters.incoming)
 async def handle_user_input(client, message):
-    if user_conversations.get(message.chat.id) == "awaiting_input":
+    user_data = user_conversations.get(message.chat.id)
+
+    if user_data and user_data.get("state") == "awaiting_input":
         try:
             # Process user input
             x_offset, y_offset, scale, transparency = map(float, message.text.split(":"))
             
             # Reset the conversation state
-            user_conversations[message.chat.id] = None
+            user_conversations[message.chat.id]["state"] = None
             
-            # Proceed with the watermarking process (call the appropriate function here)
+            # Retrieve the stored video file ID
+            video_file_id = user_data.get("video_file_id")
+            
+            # Proceed with the watermarking process
             await message.reply_text(f"Watermark settings received: {x_offset}, {y_offset}, {scale}, {transparency}.")
             
             # Continue with the video processing
-            await process_video(client, message, x_offset, y_offset, scale, transparency)
+            await process_video(client, message, video_file_id, x_offset, y_offset, scale, transparency)
 
         except ValueError:
             await message.reply_text("Invalid input format. Please try again.")
 
-async def process_video(client, message, x_offset, y_offset, scale, transparency):
-    video = message.video
-
+async def process_video(client, message, video_file_id, x_offset, y_offset, scale, transparency):
     # Download the video
     download_msg = await message.reply_text("Downloading video...")
-    video_path = await client.download_media(video.file_id, progress=progress_bar)
+    video_path = await client.download_media(video_file_id, progress=progress_bar)
 
     # Prepare output path
-    output_video = f"watermarked_{video.file_name}"
+    output_video = f"watermarked_{video_file_id}.mp4"
 
     # Add watermark using FFmpeg with transparency, size, and position
     try:
@@ -125,7 +131,7 @@ async def process_video(client, message, x_offset, y_offset, scale, transparency
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
         
-        total_duration = video.duration  # in seconds
+        total_duration = 100  # Placeholder for actual video duration
         current_duration = 0
         
         while process.poll() is None:
