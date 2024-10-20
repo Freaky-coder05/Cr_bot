@@ -27,5 +27,5 @@ FFMPEG_PATH = os.getenv("FFMPEG_PATH", "/usr/bin/ffmpeg")  # Default location of
 # config.py
 
 # Crunchyroll Premium Credentials
-CRUNCHYROLL_USERNAME = 'http://segunblaksley@live.com'
-CRUNCHYROLL_PASSWORD = '123456789'
+CRUNCHYROLL_USER = 'http://segunblaksley@live.com'
+CRUNCHYROLL_PASS = '123456789'
