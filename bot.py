@@ -112,7 +112,7 @@ async def handle_user_input(client, message):
 async def process_video(client, message, video_file_id, x_offset, y_offset, scale, transparency):
     # Download the video
     download_msg = await message.reply_text("Downloading video...")
-    video_path = await client.download_media(video_file_id, progress=progress_bar, progress_args=(message,))
+    video_path = await client.download_media(video_file_id, progress=progress_bar, progress_args=("download media....", message))
 
     # Prepare output path
     output_video = f"watermarked_{video_file_id}.mp4"
@@ -163,7 +163,7 @@ async def process_video(client, message, video_file_id, x_offset, y_offset, scal
             output_video,
             caption="Here's your watermarked video!",
             progress=progress_bar,
-            progress_args=(message,)
+            progress_args=("uploading video", message)
         )
         
         # Progress 100%, upload the video
