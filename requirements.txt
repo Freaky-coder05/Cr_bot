@@ -4,12 +4,5 @@ python-dotenv
 asyncio==3.4.3
 pillow
 hachoir
-aiohttp==3.8.5
-pytz==2023.3
-yt-dlp==2023.10.13
 ffmpeg-python==0.2.0
-pytube==15.0.0
-googletrans==4.0.0rc1
-Flask==2.3.3
-pymongo==4.5.0
 pyTelegramBotAPI==4.12.0  # Python wrapper for the Telegram Bot API
