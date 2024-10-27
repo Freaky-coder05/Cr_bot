@@ -2,7 +2,7 @@ import os
 
 API_ID = os.getenv("API_ID", "21740783")
 API_HASH = os.getenv("API_HASH", "a5dc7fec8302615f5b441ec5e238cd46")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "6610201435:AAHEv2YoM2ZEtlEdqjilv9mZGjT9Uzzrntw")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7444872585:AAHYzPX_gygFh9xYvu0-k7YOUg7BSG_hzHg")
 ADMINS = [6299192020]
 # Directory to save and process files
 SAVE_DIR = './downloads'
