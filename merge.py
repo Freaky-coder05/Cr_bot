@@ -30,7 +30,7 @@ async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
 
 # Handle video file
 @app.on_message(filters.video | filters.document)
-async def handle_video(client: Client, message: Message):
+async def merge_video(client: Client, message: Message):
     user_id = message.from_user.id
     # Ensure user state is initialized
     if user_id not in user_states:
