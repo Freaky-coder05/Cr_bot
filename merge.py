@@ -6,6 +6,7 @@ from pyrogram.types import Message
 # Create a dictionary to keep track of user states
 user_states = {}
 
+
 # Function to merge video and audio
 async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
     # FFmpeg command to replace existing audio with new audio
@@ -23,31 +24,49 @@ async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
     # Run the command
     subprocess.run(command)
 
-async def merge_video(client: Client, message: Message):
+# Handle video file
+@app.on_message(filters.video | filters.document)
+async def handle_video(client: Client, message: Message):
     user_id = message.from_user.id
     # Ensure user state is initialized
     if user_id not in user_states:
         user_states[user_id] = {"video": None, "audio": None}
 
     # Download video file
-    msg = await message.reply("Downloading your video file")
+    msg = await message.reply("Downloading your video")
     video_path = await client.download_media(message)
     await msg.edit_text("Video received! Now send an audio file to merge.")
 
     # Store the video path in user state
     user_states[user_id]["video"] = video_path
 
+# Handle audio file
+@app.on_message(filters.audio | filters.document)
+async def handle_audio(client: Client, message: Message):
+    user_id = message.from_user.id
+    # Ensure user state is initialized
+    if user_id not in user_states:
+        user_states[user_id] = {"video": None, "audio": None}
+
     if user_states[user_id]["video"] is None:
-        await msg.edit_text("Please send a video file first.")
+        await message.reply("Please send a video file first.")
         return
 
     # Download audio file
-    await msg.edit_text("Downloading your audio")
+    msg = await message.reply("Downloading your audio")
     audio_path = await client.download_media(message)
     user_states[user_id]["audio"] = audio_path
 
     # Ask for a new file name
     await msg.edit_text("Please send the new file name (without extension) for the merged file.")
+
+# Handle new file name
+@app.on_message(filters.text)
+async def handle_file_name(client: Client, message: Message):
+    user_id = message.from_user.id
+    # Ensure user state is initialized
+    if user_id not in user_states:
+        user_states[user_id] = {"video": None, "audio": None}
 
     if user_states[user_id]["audio"] is None:
         await message.reply("Please send an audio file first.")
@@ -61,11 +80,12 @@ async def merge_video(client: Client, message: Message):
     new_file_name = message.text.strip()
     output_path = f"{new_file_name}.mp4"  # Set output file with .mp4 extension
 
-    await message.reply("Merging video and audio...")
+    await msg.edit_text("Merging video and audio...")
 
     # Merge video and audio
     await merge_video_audio(video_path, audio_path, output_path)
-    await message.edit_text("Uploading your file")
+    await msg.edit_text("Uploading your audio file")
+
     await message.reply_document(output_path)
 
     # Clean up files
