@@ -35,7 +35,6 @@ async def set_mode(client, message: Message):
     await message.reply_text("Select an operation mode:", reply_markup=keyboard)
 
 # Callback query to set the operation mode
-# Callback query to set the operation mode
 @app.on_callback_query(filters.regex(r"set_"))
 async def mode_selection(client, callback_query):
     user_id = callback_query.from_user.id
@@ -63,7 +62,7 @@ async def mode_selection(client, callback_query):
         # Edit the message only if there is a change
         await callback_query.message.edit_text("Select an operation mode:", reply_markup=keyboard)
     else:
-        # Notify user that the mode is already selected (optional)
+        # If mode has not changed, show a small alert without editing the message
         await callback_query.answer("This mode is already selected.", show_alert=False)
 
 
