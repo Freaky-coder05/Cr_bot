@@ -32,8 +32,8 @@ async def select_mode(client, message):
     )
     
     await message.reply(
-        "Choose an operation mode:",
-        reply_markup=InlineKeyboardMarkup([remove_audio_button, trim_video_button], [merge_video_audio_button])
+        "Choose an operation mode in this Button 🔘:",
+        reply_markup=InlineKeyboardMarkup([[remove_audio_button, trim_video_button, merge_video_audio_button]])
     )
 
 # Handle button clicks for mode selection
