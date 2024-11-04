@@ -15,7 +15,7 @@ user_files = {}
 @app.on_message(filters.command("mode"))
 async def select_mode(client, message):
     user_id = message.from_user.id
-    current_mode = user_modes.get(user_id, "Remove Audio")
+    current_mode = user_modes.get(user_id, "Video + Audio Merge")
     
     # Create buttons with the current mode indicated by ✅
     remove_audio_button = InlineKeyboardButton(
