@@ -69,7 +69,7 @@ async def mode_callback(client, callback_query):
     )
 
 # Handle video files for merging or other operations
-@app.on_message(filters.video | filters.document.video & filters.incoming)
+@app.on_message(filters.video | filters.document & filters.incoming)
 async def handle_video(client, message: Message):
     user_id = message.from_user.id
     current_mode = user_modes.get(user_id, "Remove Audio")
@@ -86,7 +86,7 @@ async def handle_video(client, message: Message):
         await message.reply("Video received! Now, please send the audio file to merge.")
 
 # Handle audio files for merging
-@app.on_message(filters.audio | filters.document.audio & filters.incoming)
+@app.on_message(filters.audio | filters.document & filters.incoming)
 async def handle_audio(client, message: Message):
     user_id = message.from_user.id
     current_mode = user_modes.get(user_id, "Remove Audio")
