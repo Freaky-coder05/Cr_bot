@@ -86,17 +86,19 @@ async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
 
 async def merge_video(client: Client, message: Message):
     # Download video file
+    msg = await message.reply_text("Downloading your video")
     video_path = await client.download_media(message)
-    await message.reply("Video received! Now send an audio file to merge.")
+    await msg.edit_text("Video received! Now send an audio file to merge.")
 
     # Wait for the audio file
     audio_message = await client.listen(message.chat.id)
 
     if audio_message.audio or audio_message.document:
+        msg = await message.reply_text("Downloading audio")
         audio_path = await client.download_media(audio_message)
 
         # Ask for a new file name
-        await message.reply("Please send the new file name (without extension) for the merged file.")
+        await message.reply("Please send the new file name (without extension) for the merged file.",fore_reply=True)
         
         # Listen for the new file name
         name_message = await client.listen(message.chat.id)
@@ -109,7 +111,7 @@ async def merge_video(client: Client, message: Message):
 
         # Merge video and audio
         await merge_video_audio(video_path, audio_path, output_path)
-
+        await message.reply("Uploading video file")
         await message.reply_document(output_path)
 
         # Clean up files
