@@ -108,14 +108,10 @@ async def handle_audio(client, message: Message):
 # Handle the reply with the new name for the merged file
 @app.on_message(filters.reply & filters.text)
 async def handle_name_reply(client, message: Message):
-    user_id = message.from_user.id
-    if user_id in user_files and "video" in user_files[user_id] and "audio" in user_files[user_id]:
-        new_name = message.text.strip()
-    else:
-        await message.reply("Please upload both video and audio files before setting a name.")
-
+    user_id = message.from_user.id   
     video_path = user_files[user_id]["video"]
     audio_path = user_files[user_id]["audio"]
+    new_name = message.text.strip()
     output_path = f"{new_name}.mp4"
     
     try:
@@ -136,7 +132,7 @@ async def handle_name_reply(client, message: Message):
         await process.communicate()
 
         await message.reply("Uploading merged video...")
-        await message.reply_video(output_path)
+        await message.reply_document(output_path)
     except Exception as e:
         await msg.edit(f"Error: {e}")
     finally:
