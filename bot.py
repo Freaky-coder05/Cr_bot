@@ -35,17 +35,21 @@ async def set_mode(client, message: Message):
     await message.reply_text("Select an operation mode:", reply_markup=keyboard)
 
 # Callback query to set the operation mode
+# Callback query to set the operation mode
 @app.on_callback_query(filters.regex(r"set_"))
 async def mode_selection(client, callback_query):
     user_id = callback_query.from_user.id
     mode = callback_query.data.split("_")[1]
+
+    # Initialize new_mode with the current mode or an empty string
+    new_mode = user_modes.get(user_id, "")
 
     # Determine the new mode based on the button clicked
     if mode == "audio_remover":
         new_mode = "Audio Remover"
     elif mode == "video_trimmer":
         new_mode = "Video Trimmer"
-    
+
     # Only proceed if the selected mode is different from the current mode
     if user_modes.get(user_id) != new_mode:
         user_modes[user_id] = new_mode
@@ -61,6 +65,7 @@ async def mode_selection(client, callback_query):
     else:
         # Notify user that the mode is already selected (optional)
         await callback_query.answer("This mode is already selected.", show_alert=False)
+
 
 # Handle video files based on the selected mode
 @app.on_message(filters.video & filters.private)
