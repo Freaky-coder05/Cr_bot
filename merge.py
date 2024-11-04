@@ -2,6 +2,10 @@ import os
 import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from config import BOT_TOKEN, API_ID, API_HASH
+
+app = Client("audio_video_editor_bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+
 
 # Create a dictionary to keep track of user states
 user_states = {}
