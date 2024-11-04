@@ -73,7 +73,7 @@ async def handle_file_name(client: Client, message: Message):
 
     # Merge video and audio
     await merge_video_audio(video_path, audio_path, output_path)
-
+    await message.edit_text("Uploading your file")
     await message.reply_document(output_path)
 
     # Clean up files
