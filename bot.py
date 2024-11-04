@@ -1,108 +1,95 @@
-import os
-import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import ffmpeg
+import os
 
+# Bot API setup
+app = Client("video_audio_merger_bot", api_id="YOUR_API_ID", api_hash="YOUR_API_HASH", bot_token="YOUR_BOT_TOKEN")
 
-app = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Initialize user settings
+user_settings = {}
 
-# Create a dictionary to keep track of user states
-user_states = {}
-
-# Command to start the bot
-@app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
+# Command to toggle mode
+@app.on_message(filters.command("mode"))
+async def mode_command(client, message):
     user_id = message.from_user.id
-    # Initialize user state
-    user_states[user_id] = {"video": None, "audio": None}
-    await message.reply("Welcome! Send a video file first, and then send an audio file to merge them.")
-
-# Function to merge video and audio
-async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
-    # FFmpeg command to replace existing audio with new audio
-    command = [
-        'ffmpeg', '-y',  # Overwrite without asking
-        '-i', video_path,  # Input video
-        '-i', audio_path,  # Input audio
-        '-c:v', 'copy',  # Copy video without re-encoding
-        '-c:a', 'aac',  # Encode audio to AAC
-        '-map', '0:v:0',  # Use first video stream from the input
-        '-map', '1:a:0',  # Use audio from the new audio file
-        output_path  # Output file
+    if user_id not in user_settings:
+        user_settings[user_id] = {
+            "upload_as_document": False,
+            "metadata": True,
+            "mode": {
+                "video_audio_merger": False,
+                "remove_stream": False,
+                "rename": False
+            }
+        }
+    
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "Video + Audio Merger" + (" ✅" if user_settings[user_id]["mode"]["video_audio_merger"] else ""),
+                callback_data="toggle_video_audio_merger"
+            ),
+            InlineKeyboardButton(
+                "Remove Stream" + (" ✅" if user_settings[user_id]["mode"]["remove_stream"] else ""),
+                callback_data="toggle_remove_stream"
+            )
+        ]
     ]
-    
-    # Run the command
-    subprocess.run(command)
+    await message.reply_text(
+        "Select Mode:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-# Handle video file
-@app.on_message(filters.video)
-async def handle_video(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
-    # Download video file
-    video_path = await client.download_media(message)
-    await message.reply("Video received! Now send an audio file to merge.")
-
-    # Store the video path in user state
-    user_states[user_id]["video"] = video_path
-
-# Handle audio file
-@app.on_message(filters.audio | filters.document)
-async def handle_audio(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
-    if user_states[user_id]["video"] is None:
-        await message.reply("Please send a video file first.")
+# Callback for toggling modes
+@app.on_callback_query()
+async def toggle_mode(client, callback_query):
+    user_id = callback_query.from_user.id
+    if user_id not in user_settings:
+        await callback_query.answer("User settings not found.")
         return
 
-    # Download audio file
-    audio_path = await client.download_media(message)
-    user_states[user_id]["audio"] = audio_path
-
-    # Ask for a new file name
-    await message.reply("Please send the new file name (without extension) for the merged file.")
-
-# Handle new file name
-@app.on_message(filters.text)
-async def handle_file_name(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
-    if user_states[user_id]["audio"] is None:
-        await message.reply("Please send an audio file first.")
-        return
-
-    # Get video and audio paths from user states
-    video_path = user_states[user_id]["video"]
-    audio_path = user_states[user_id]["audio"]
+    if callback_query.data == "toggle_video_audio_merger":
+        user_settings[user_id]["mode"]["video_audio_merger"] = not user_settings[user_id]["mode"]["video_audio_merger"]
+    elif callback_query.data == "toggle_remove_stream":
+        user_settings[user_id]["mode"]["remove_stream"] = not user_settings[user_id]["mode"]["remove_stream"]
     
-    # Create output file path
-    new_file_name = message.text.strip()
-    output_path = f"{new_file_name}.mp4"  # Set output file with .mp4 extension
+    # Update the inline keyboard with the new status
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "Video + Audio Merger" + (" ✅" if user_settings[user_id]["mode"]["video_audio_merger"] else ""),
+                callback_data="toggle_video_audio_merger"
+            ),
+            InlineKeyboardButton(
+                "Remove Stream" + (" ✅" if user_settings[user_id]["mode"]["remove_stream"] else ""),
+                callback_data="toggle_remove_stream"
+            )
+        ]
+    ]
+    await callback_query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
 
-    await message.reply("Merging video and audio...")
+# Video + Audio Merger function
+@app.on_message(filters.command("merge_video_audio"))
+async def merge_video_audio(client, message):
+    user_id = message.from_user.id
+    if not user_settings.get(user_id, {}).get("mode", {}).get("video_audio_merger"):
+        await message.reply_text("Video + Audio Merger mode is not enabled.")
+        return
+    
+    await message.reply_text("Please send the video file to merge.")
+    # Download and merge implementation follows
 
-    # Merge video and audio
-    await merge_video_audio(video_path, audio_path, output_path)
+# Stream Remover function
+@app.on_message(filters.command("remove_stream"))
+async def remove_stream(client, message):
+    user_id = message.from_user.id
+    if not user_settings.get(user_id, {}).get("mode", {}).get("remove_stream"):
+        await message.reply_text("Remove Stream mode is not enabled.")
+        return
+    
+    await message.reply_text("Please send the video file to remove streams.")
+    # Stream removal implementation follows
 
-    await message.reply_document(output_path)
-
-    # Clean up files
-    os.remove(video_path)
-    os.remove(audio_path)
-    os.remove(output_path)
-
-    # Reset user state
-    user_states[user_id] = {"video": None, "audio": None}
-
-if __name__ == "__main__":
-    app.run()
+# Run the bot
+app.run()
