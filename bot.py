@@ -40,17 +40,27 @@ async def mode_selection(client, callback_query):
     user_id = callback_query.from_user.id
     mode = callback_query.data.split("_")[1]
 
+    # Determine the new mode based on the button clicked
     if mode == "audio_remover":
-        user_modes[user_id] = "Audio Remover"
+        new_mode = "Audio Remover"
     elif mode == "video_trimmer":
-        user_modes[user_id] = "Video Trimmer"
+        new_mode = "Video Trimmer"
+    
+    # Only proceed if the selected mode is different from the current mode
+    if user_modes.get(user_id) != new_mode:
+        user_modes[user_id] = new_mode
 
-    # Update the mode selection buttons
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Audio Remover" + (" ✅" if user_modes.get(user_id) == "Audio Remover" else ""), callback_data="set_audio_remover")],
-        [InlineKeyboardButton("Video Trimmer" + (" ✅" if user_modes.get(user_id) == "Video Trimmer" else ""), callback_data="set_video_trimmer")]
-    ])
-    await callback_query.message.edit_text("Select an operation mode:", reply_markup=keyboard)
+        # Update the mode selection buttons
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Audio Remover" + (" ✅" if user_modes.get(user_id) == "Audio Remover" else ""), callback_data="set_audio_remover")],
+            [InlineKeyboardButton("Video Trimmer" + (" ✅" if user_modes.get(user_id) == "Video Trimmer" else ""), callback_data="set_video_trimmer")]
+        ])
+        
+        # Edit the message only if there is a change
+        await callback_query.message.edit_text("Select an operation mode:", reply_markup=keyboard)
+    else:
+        # Notify user that the mode is already selected (optional)
+        await callback_query.answer("This mode is already selected.", show_alert=False)
 
 # Handle video files based on the selected mode
 @app.on_message(filters.video & filters.private)
