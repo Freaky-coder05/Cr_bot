@@ -110,19 +110,14 @@ async def handle_audio(client, message: Message):
 async def handle_name_reply(client, message: Message):
     user_id = message.from_user.id
     if user_id in user_files and "video" in user_files[user_id] and "audio" in user_files[user_id]:
-        new_name = message.text
-        await merge_video_audio(client, user_files[user_id]["message"], new_name)
+        new_name = message.text.strip()
     else:
         await message.reply("Please upload both video and audio files before setting a name.")
 
-# Function to merge video and audio
-async def merge_video_audio(client, message, new_name):
-    user_id = message.from_user.id
     video_path = user_files[user_id]["video"]
     audio_path = user_files[user_id]["audio"]
     output_path = f"{new_name}.mp4"
     
-    msg = await message.reply("Merging video and audio...")
     try:
         command = [
             'ffmpeg', '-y',  # Overwrite without asking
@@ -136,11 +131,11 @@ async def merge_video_audio(client, message, new_name):
         ]
         
         # Execute the FFmpeg command
-        await message.reply("Merging audio into video...")
+        await message.reply("Merging audio and video...")
         process = await asyncio.create_subprocess_exec(*command)
         await process.communicate()
 
-        await msg.edit("Uploading merged video...")
+        await message.reply("Uploading merged video...")
         await message.reply_video(output_path)
     except Exception as e:
         await msg.edit(f"Error: {e}")
