@@ -49,14 +49,6 @@ async def merge_video(client: Client, message: Message):
     # Ask for a new file name
     await msg.edit_text("Please send the new file name (without extension) for the merged file.")
 
-# Handle new file name
-@app.on_message(filters.text)
-async def handle_file_name(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
     if user_states[user_id]["audio"] is None:
         await message.reply("Please send an audio file first.")
         return
