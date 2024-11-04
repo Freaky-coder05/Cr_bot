@@ -1,6 +1,6 @@
 import os
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, ForceReply
 import ffmpeg
 
 from config import BOT_TOKEN, API_ID, API_HASH
@@ -33,7 +33,7 @@ async def select_mode(client, message):
     
     await message.reply(
         "Choose an operation mode:",
-        reply_markup=InlineKeyboardMarkup([[remove_audio_button, trim_video_button, merge_video_audio_button]])
+        reply_markup=InlineKeyboardMarkup([remove_audio_button, trim_video_button], [merge_video_audio_button])
     )
 
 # Handle button clicks for mode selection
@@ -69,97 +69,124 @@ async def mode_callback(client, callback_query):
     )
 
 # Handle video files for merging or other operations
-@app.on_message(filters.video | filters.document & filters.incoming)
+@app.on_message(filters.video | filters.document.video & filters.incoming)
 async def handle_video(client, message: Message):
     user_id = message.from_user.id
     current_mode = user_modes.get(user_id, "Remove Audio")
     
     if current_mode == "Remove Audio":
-        await remove_audio(client, message)
+        await ask_for_name(client, message, "remove_audio")
     elif current_mode == "Trim Video":
-        await trim_video(client, message)
+        await ask_for_name(client, message, "trim_video")
     elif current_mode == "Video+Audio Merger":
-        # Store the video file path and prompt for audio
-        msg = await message.reply("downloading your file")
         video_file_path = await message.download()
         user_files[user_id] = {"video": video_file_path, "audio": None}
         await message.reply("Video received! Now, please send the audio file to merge.")
 
 # Handle audio files for merging
-@app.on_message(filters.audio | filters.document & filters.incoming)
+@app.on_message(filters.audio | filters.document.audio & filters.incoming)
 async def handle_audio(client, message: Message):
     user_id = message.from_user.id
     current_mode = user_modes.get(user_id, "Remove Audio")
     
     if current_mode == "Video+Audio Merger":
-        await message.reply("Downloading audio file..")
         audio_file_path = await message.download()
         
         if user_id in user_files and user_files[user_id].get("video"):
-            # If video file is already received, proceed with merging
             user_files[user_id]["audio"] = audio_file_path
-            await merge_video_audio(client, message, user_files[user_id]["video"], audio_file_path)
-            # Clean up stored file paths after merging
-            user_files.pop(user_id)
+            await ask_for_name(client, message, "merge_video_audio")
         else:
-            # If video not received yet, store audio file and wait for video
             user_files[user_id] = {"video": None, "audio": audio_file_path}
             await message.reply("Audio received! Now, please send the video file to merge.")
 
+# Ask user for new file name with force reply
+async def ask_for_name(client, message, operation):
+    user_id = message.from_user.id
+    user_files[user_id] = {"operation": operation, "message": message}
+    await message.reply("Please enter the new name for the output file:", reply_markup=ForceReply(selective=True))
+
+# Handle user response with new name
+@app.on_message(filters.reply & filters.text)
+async def handle_name_reply(client, message: Message):
+    user_id = message.from_user.id
+    if user_id in user_files and "operation" in user_files[user_id]:
+        operation = user_files[user_id]["operation"]
+        new_name = f"{message.text}.mp4"
+        
+        if operation == "remove_audio":
+            await remove_audio(client, user_files[user_id]["message"], new_name)
+        elif operation == "trim_video":
+            await trim_video(client, user_files[user_id]["message"], new_name)
+        elif operation == "merge_video_audio":
+            await merge_video_audio(client, user_files[user_id]["message"], new_name)
+        
+        # Clear user files after operation
+        user_files.pop(user_id)
+
 # Remove audio function
-async def remove_audio(client, message):
+async def remove_audio(client, message, output_name):
     msg = await message.reply("Downloading video...")
     video_file = await message.download()
     
-    output_file = f"no_audio_{os.path.basename(video_file)}"
-    
     await msg.edit("Removing audio...")
     try:
-        ffmpeg.input(video_file).output(output_file, an=None).run(overwrite_output=True)
+        ffmpeg.input(video_file).output(output_name, an=None).run(overwrite_output=True)
         await msg.edit("Uploading video without audio...")
-        await message.reply_video(output_file)
+        await message.reply_video(output_name)
     except Exception as e:
         await msg.edit(f"Error: {e}")
     finally:
         os.remove(video_file)
-        os.remove(output_file)
+        os.remove(output_name)
 
 # Trim video function with default start and end time
-async def trim_video(client, message):
+async def trim_video(client, message, output_name):
     start_time = "00:00:10"
     end_time = "00:00:20"
     
     msg = await message.reply("Downloading video...")
     video_file = await message.download()
     
-    output_file = f"trimmed_{os.path.basename(video_file)}"
-    
     await msg.edit("Trimming video...")
     try:
-        ffmpeg.input(video_file, ss=start_time, to=end_time).output(output_file).run(overwrite_output=True)
+        ffmpeg.input(video_file, ss=start_time, to=end_time).output(output_name).run(overwrite_output=True)
         await msg.edit("Uploading trimmed video...")
-        await message.reply_video(output_file)
+        await message.reply_video(output_name)
     except Exception as e:
         await msg.edit(f"Error: {e}")
     finally:
         os.remove(video_file)
-        os.remove(output_file)
+        os.remove(output_name)
 
 # Merge video and audio function
-async def merge_video_audio(client, message, video_file, audio_file):
-    msg = await message.reply("Merging video with audio...")
-    output_file = f"merged_{os.path.basename(video_file)}"
+async def merge_video_audio(client, message, output_name):
+    user_id = message.from_user.id
+    video_file = user_files[user_id]["video"]
+    audio_file = user_files[user_id]["audio"]
     
+    msg = await message.reply("Merging video with audio...")
     try:
-        ffmpeg.input(video_file).input(audio_file).output(output_file, vcodec="copy", acodec="aac").run(overwrite_output=True)
+        command = [
+            'ffmpeg', '-y',  # Overwrite without asking
+            '-i', video_file,  # Input video
+            '-i', audio_file,  # Input audio
+            '-c:v', 'copy',  # Copy video without re-encoding
+            '-c:a', 'copy',  # Copy audio without re-encoding
+            '-map', '0:v:0',  # Use first video stream from the input
+            '-map', '1:a:0',  # Use audio from the new audio file
+            output_name  # Output file
+        ]
+        
+        # Run the FFmpeg command
+        subprocess.run(command, check=True)
         await msg.edit("Uploading merged video...")
-        await message.reply_video(output_file)
+        await message.reply_video(output_name)
     except Exception as e:
         await msg.edit(f"Error: {e}")
     finally:
         os.remove(video_file)
         os.remove(audio_file)
-        os.remove(output_file)
+        os.remove(output_name)
 
 # Start command with instructions
 @app.on_message(filters.command("start"))
