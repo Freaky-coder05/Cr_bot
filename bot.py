@@ -56,7 +56,7 @@ async def mode_callback(client, callback_query):
         callback_data="remove_audio"
     )
     trim_video_button = InlineKeyboardButton(
-        f"Trim Video {'✅' if user_modes[user_id] == "Trim Video' else ''}", 
+        f"Trim Video {'✅' if user_modes[user_id] == 'Trim Video' else ''}", 
         callback_data="trim_video"
     )
     merge_video_audio_button = InlineKeyboardButton(
