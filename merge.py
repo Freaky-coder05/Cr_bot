@@ -32,7 +32,7 @@ async def merge_video(client: Client, message: Message):
     # Download video file
     msg = await message.reply("Downloading your video file")
     video_path = await client.download_media(message)
-    await msg.exit_text("Video received! Now send an audio file to merge.")
+    await msg.edit_text("Video received! Now send an audio file to merge.")
 
     # Store the video path in user state
     user_states[user_id]["video"] = video_path
