@@ -28,13 +28,13 @@ async def select_mode(client, message):
         callback_data="trim_video"
     )
     merge_video_audio_button = InlineKeyboardButton(
-        f"Merge Video+Audio {'✅' if current_mode == 'Merge Video+Audio' else ''}", 
+        f"Video+Audio {'✅' if current_mode == 'Merge Video+Audio' else ''}", 
         callback_data="merge_video_audio"
     )
     
     await message.reply(
         "Choose an operation mode:",
-        reply_markup=InlineKeyboardMarkup([[remove_audio_button, trim_video_button, merge_video_audio_button]])
+        reply_markup=InlineKeyboardMarkup([[remove_audio_button, trim_video_button], [merge_video_audio_button]])
     )
 
 # Handle button clicks for mode selection
@@ -61,11 +61,11 @@ async def mode_callback(client, callback_query):
         callback_data="trim_video"
     )
     merge_video_audio_button = InlineKeyboardButton(
-        f"Merge Video+Audio {'✅' if user_modes[user_id] == 'Merge Video+Audio' else ''}", 
+        f"Video+Audio {'✅' if user_modes[user_id] == 'Merge Video+Audio' else ''}", 
         callback_data="merge_video_audio"
     )
     
-    new_markup = InlineKeyboardMarkup([[remove_audio_button, trim_video_button, merge_video_audio_button]])
+    new_markup = InlineKeyboardMarkup([[remove_audio_button, trim_video_button], [merge_video_audio_button]])
     if callback_query.message.reply_markup != new_markup:
         await callback_query.message.edit_reply_markup(reply_markup=new_markup)
     else:
