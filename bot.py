@@ -51,7 +51,7 @@ async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
         '-i', video_path,  # Input video
         '-i', audio_path,  # Input audio
         '-vf', "subtitles=subtitle.srt:force_style='Alignment=6'",  # Add subtitles at the top center
-        '-c:v', 'copy',  # Copy video without re-encoding
+        '-c:v', 'libx264',  # Re-encode video to apply subtitle filter
         '-c:a', 'aac',  # Encode audio to AAC
         '-map', '0:v:0',  # Use first video stream from the input
         '-map', '1:a:0',  # Use audio from the new audio file
@@ -70,6 +70,7 @@ async def handle_video(client: Client, message: Message):
         user_states[user_id] = {"video": None, "audio": None}
 
     # Download video file
+    await message.reply("Downloading video ")
     video_path = await client.download_media(message)
     await message.reply("Video received! Now send an audio file to merge.")
 
@@ -89,6 +90,7 @@ async def handle_audio(client: Client, message: Message):
         return
 
     # Download audio file
+   
     audio_path = await client.download_media(message)
     user_states[user_id]["audio"] = audio_path
 
@@ -119,7 +121,7 @@ async def handle_file_name(client: Client, message: Message):
 
     # Merge video and audio with subtitles
     await merge_video_audio(video_path, audio_path, output_path)
-
+    await message.reply("uploading file")
     await message.reply_document(output_path)
 
     # Clean up files
