@@ -1,137 +1,81 @@
 import os
-import subprocess
+import re
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN  # Ensure you have your API ID, API HASH, and BOT TOKEN in config.py
+from config import API_ID, API_HASH, BOT_TOKEN  
 
-app = Client("video_audio_merger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Initialize bot
+bot = Client("episodes_arranger_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Create a dictionary to keep track of user states
-user_states = {}
+# Dictionary to store user files before processing
+user_files = {}
 
-# Subtitle file content
-subtitle_content = """1
-00:00:00,000 --> 00:00:10,000
-T.me:Anime_Warrior_Tamil
+# Regex pattern to detect episode numbers (e.g., "Episode 01", "EP_05", "E12", etc.)
+EPISODE_PATTERN = re.compile(r'(?:ep|episode|e)(\d+)', re.IGNORECASE)
 
-2
-00:05:00,000 --> 00:05:10,000
-T.me:Anime_Warrior_Tamil
-
-3
-00:10:00,000 --> 00:10:10,000
-T.me:Anime_Warrior_Tamil
-
-4
-00:15:00,000 --> 00:15:10,000
-T.me:Anime_Warrior_Tamil
-"""
-
-# Function to write subtitle content to a file
-def write_subtitle_file():
-    with open("subtitle.srt", "w") as f:
-        f.write(subtitle_content)
-
-# Command to start the bot
-@app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
+@bot.on_message(filters.private & filters.document | filters.video)
+async def receive_files(client, message: Message):
     user_id = message.from_user.id
-    # Initialize user state
-    user_states[user_id] = {"video": None, "audio": None}
-    await message.reply("Welcome! Send a video file first, and then send an audio file to merge them.")
-
-# Function to merge video, audio, and add subtitles
-async def merge_video_audio(video_path: str, audio_path: str, output_path: str):
-    # Write the subtitle file
-    write_subtitle_file()
+    if user_id not in user_files:
+        user_files[user_id] = []
     
-    # FFmpeg command to replace existing audio, add new audio, and add subtitles
-    command = [
-        'ffmpeg', '-y',  # Overwrite without asking
-        '-i', video_path,  # Input video
-        '-i', audio_path,  # Input audio
-        '-vf', "subtitles=subtitle.srt:force_style='Alignment=6'",  # Add subtitles at the top center
-        '-c:v', 'libx264',  # Re-encode video to apply subtitle filter
-        '-c:a', 'aac',  # Encode audio to AAC
-        '-map', '0:v:0',  # Use first video stream from the input
-        '-map', '1:a:0',  # Use audio from the new audio file
-        output_path  # Output file
-    ]
+    file_name = message.document.file_name if message.document else message.video.file_name
+    file_id = message.document.file_id if message.document else message.video.file_id
     
-    # Run the command
-    subprocess.run(command)
+    # Extract episode number
+    match = EPISODE_PATTERN.search(file_name)
+    episode_number = int(match.group(1)) if match else 9999  # Default to 9999 if no number found
 
-# Handle video file
-@app.on_message(filters.video)
-async def handle_video(client: Client, message: Message):
+    user_files[user_id].append({"file_id": file_id, "file_name": file_name, "ep_no": episode_number})
+    
+    await message.reply_text(f"✅ Received `{file_name}`. Send all episodes, then type `/arrange`.")
+
+@bot.on_message(filters.private & filters.command("arrange"))
+async def arrange_episodes(client, message: Message):
     user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
-    # Download video file
-    await message.reply("Downloading video ")
-    video_path = await client.download_media(message)
-    await message.reply("Video received! Now send an audio file to merge.")
-
-    # Store the video path in user state
-    user_states[user_id]["video"] = video_path
-
-# Handle audio file
-@app.on_message(filters.audio | filters.document)
-async def handle_audio(client: Client, message: Message):
-    user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
-
-    if user_states[user_id]["video"] is None:
-        await message.reply("Please send a video file first.")
+    if user_id not in user_files or len(user_files[user_id]) == 0:
+        await message.reply_text("❌ No episodes found. Send video files first!")
         return
 
-    # Download audio file
-   
-    audio_path = await client.download_media(message)
-    user_states[user_id]["audio"] = audio_path
+    await message.reply_text("🔄 Sorting episodes in order...")
 
-    # Ask for a new file name
-    await message.reply("Please send the new file name (without extension) for the merged file.")
+    # Sort episodes based on detected episode number
+    sorted_files = sorted(user_files[user_id], key=lambda x: x["ep_no"])
 
-# Handle new file name
-@app.on_message(filters.text)
-async def handle_file_name(client: Client, message: Message):
+    await message.reply_text("✅ Sorted! Uploading...")
+
+    for i, file in enumerate(sorted_files, start=1):
+        new_name = f"Episode {i}.mp4"  # Rename in proper order
+        await client.send_document(
+            chat_id=message.chat.id,
+            document=file["file_id"],
+            file_name=new_name,
+            caption=f"📺 `{new_name}` (Ordered)"
+        )
+        await asyncio.sleep(2)  # Small delay to avoid flooding
+
+    # Clear files after uploading
+    del user_files[user_id]
+    await message.reply_text("✅ All episodes uploaded in correct order!")
+
+@bot.on_message(filters.private & filters.command("clear"))
+async def clear_files(client, message: Message):
     user_id = message.from_user.id
-    # Ensure user state is initialized
-    if user_id not in user_states:
-        user_states[user_id] = {"video": None, "audio": None}
+    if user_id in user_files:
+        del user_files[user_id]
+        await message.reply_text("🗑️ Cleared all uploaded files!")
+    else:
+        await message.reply_text("❌ No files to clear.")
 
-    if user_states[user_id]["audio"] is None:
-        await message.reply("Please send an audio file first.")
-        return
+@bot.on_message(filters.private & filters.command("start"))
+async def start_message(client, message: Message):
+    await message.reply_text(
+        "👋 Welcome to the **Episodes Arranger Bot**!\n\n"
+        "📥 Send me episodes one by one.\n"
+        "📌 Once all episodes are sent, type `/arrange`.\n"
+        "🔄 I will sort and upload them in order!"
+    )
 
-    # Get video and audio paths from user states
-    video_path = user_states[user_id]["video"]
-    audio_path = user_states[user_id]["audio"]
-    
-    # Create output file path
-    new_file_name = message.text.strip()
-    output_path = f"{new_file_name}.mp4"  # Set output file with .mp4 extension
-
-    await message.reply("Merging video and audio with subtitles...")
-
-    # Merge video and audio with subtitles
-    await merge_video_audio(video_path, audio_path, output_path)
-    await message.reply("uploading file")
-    await message.reply_document(output_path)
-
-    # Clean up files
-    os.remove(video_path)
-    os.remove(audio_path)
-    os.remove(output_path)
-    os.remove("subtitle.srt")
-
-    # Reset user state
-    user_states[user_id] = {"video": None, "audio": None}
-
-if __name__ == "__main__":
-    app.run()
+# Start the bot
+bot.run()
