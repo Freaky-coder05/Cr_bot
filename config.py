@@ -2,12 +2,12 @@ import os
 
 API_ID = os.getenv("API_ID", "21740783")
 API_HASH = os.getenv("API_HASH", "a5dc7fec8302615f5b441ec5e238cd46")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7444872585:AAHYzPX_gygFh9xYvu0-k7YOUg7BSG_hzHg")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7116266807:AAGUjObnk3_UGeGbYqZCMpnBPziHs4g2_Us")
 ADMINS = [6299192020]
 # Directory to save and process files
 SAVE_DIR = './downloads'
 
-ARIA2_RPC_URL = os.getenv("ARIA2_RPC_URL", "http://localhost:6800/jsonrpc")  # Aria2 RPC URL
+ARIA2_RPC_URL = os.getenv("ARIA2_RPC_URL", "http://localhost:8080/jsonrpc")  # Aria2 RPC URL
 ARIA2_SECRET = os.getenv("ARIA2_SECRET", "YOUR_ARIA2_SECRET")  # Set your secret if needed
 DOWNLOAD_PATH = os.getenv("DOWNLOAD_PATH", "./downloads")  # Folder to store downloads
 
