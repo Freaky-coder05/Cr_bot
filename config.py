@@ -7,6 +7,10 @@ ADMINS = [6299192020]
 # Directory to save and process files
 SAVE_DIR = './downloads'
 
+ARIA2_RPC_URL = os.getenv("ARIA2_RPC_URL", "http://localhost:6800/jsonrpc")  # Aria2 RPC URL
+ARIA2_SECRET = os.getenv("ARIA2_SECRET", "YOUR_ARIA2_SECRET")  # Set your secret if needed
+DOWNLOAD_PATH = os.getenv("DOWNLOAD_PATH", "./downloads")  # Folder to store downloads
+
 
 # Default watermark settings (can be changed by sending a new image)
 WATERMARK_PATH = "default_watermark.png"  # Default watermark image path
