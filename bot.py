@@ -11,7 +11,7 @@ from config import API_ID, API_HASH, BOT_TOKEN
 bot = Client("URLLeechBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Initialize Aria2 RPC
-aria2 = aria2p.API(aria2p.Client(host="http://localhost", port=6800, secret=""))
+aria2 = aria2p.API(aria2p.Client(host="http://localhost", port=8030, secret=""))
 
 async def download_file(url, file_name, message):
     """ Download Direct Links with Progress """
