@@ -6,3 +6,4 @@ asyncio==3.4.3
 pillow
 hachoir
 ffmpeg-python==0.2.0
+python-libtorrent
