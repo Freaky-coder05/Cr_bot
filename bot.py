@@ -1,4 +1,5 @@
 import os
+import time
 import aiohttp
 import asyncio
 import aria2p
@@ -9,80 +10,31 @@ from config import API_ID, API_HASH, BOT_TOKEN
 # Initialize Bot
 bot = Client("URLLeechBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Initialize Aria2 RPC
-aria2 = aria2p.API(aria2p.Client(host="http://localhost", port=8030, secret=""))
-
-async def download_file(url, file_name, message):
-    """ Download Direct Links (HTTP/HTTPS) with Progress """
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                await message.reply_text("❌ Failed to download file. Invalid URL.")
-                return None
-            
-            total_size = int(resp.headers.get("content-length", 0))
-            downloaded_size = 0
-            chunk_size = 1024 * 1024  # 1MB
-            
-            with open(file_name, "wb") as file:
-                async for chunk in resp.content.iter_any():  # Fixed: No argument needed
-                    if not chunk:
-                        break
-                    file.write(chunk)
-                    downloaded_size += len(chunk)
-                    progress = (downloaded_size / total_size) * 100
-                    await message.edit(f"📥 Downloading: {progress:.2f}%")
-    
-    return file_name
-
-async def aria2_download(url, message):
-    """ Download Mirror & Torrent Files via Aria2 """
-    try:
-        download = aria2.add_uris([url])
-        while not download.is_complete:
-            await asyncio.sleep(2)
-            progress = download.progress
-            await message.edit(f"📥 Downloading (Aria2): {progress:.2f}%")
-        
-        return download.files[0].path  # Return downloaded file path
-    except Exception as e:
-        await message.reply_text(f"❌ Aria2 Download Failed: {e}")
-        return None
-
-@bot.on_message(filters.command("start"))
-async def start(_, message: Message):
-    await message.reply_text("👋 **Send me a direct URL, mirror link, or torrent (magnet link/file) to leech.**")
-
 @bot.on_message(filters.text & filters.private)
-async def leech_file(_, message: Message):
-    url = message.text.strip()
-    msg = await message.reply_text("🔄 **Processing...**")
-
-    file_path = None
-
-    if url.startswith("magnet:?xt="):
-        # Handle Magnet Links using Aria2
-        file_path = await aria2_download(url, msg)
-    
-    elif url.startswith(("http", "https")):
-        if any(ext in url for ext in [".torrent"]):
-            # Handle Torrent Files via Aria2
-            file_path = await aria2_download(url, msg)
-        else:
-            # Handle Direct HTTP/HTTPS Downloads
-            file_name = url.split("/")[-1]
-            file_path = await download_file(url, file_name, msg)
-
-    else:
-        await msg.edit("❌ **Invalid URL or unsupported format.**")
+async def dfile(client, message):
+    if not message.is_private:
         return
+    
+    link, name = "", ""
+    try:
+        link = message.text.split()[1]
+        name = message.text.split()[2]
+    except BaseException:
+        pass
+    if not link:
+        return
+    
+    s = dt.now()
+    xxx = await event.reply("`Downloading...`")
+    try:
+        dl = await fast_download(xxx, link, name)
+    except Exception as er:
+        await message.reply_text("an error occurred:",er)
 
-    if file_path:
-        await msg.edit("📤 **Uploading file to Telegram...**")
-        await message.reply_document(file_path)
-        os.remove(file_path)  # Cleanup after upload
-        await msg.delete()
+    if dl:
+        await message.reply_text("uploading ")
+        await message.send_document(dl)
     else:
-        await msg.edit("❌ **Download failed.**")
+        await message.reply_text("No file found")
 
 bot.run()
