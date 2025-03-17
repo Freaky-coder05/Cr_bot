@@ -12,8 +12,6 @@ bot = Client("URLLeechBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKE
 
 @bot.on_message(filters.text & filters.private)
 async def dfile(client, message):
-    if not message.is_private:
-        return
     
     link, name = "", ""
     try:
