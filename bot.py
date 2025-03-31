@@ -1,6 +1,6 @@
 import os
 import asyncio
-import whisper
+from faster_whisper import WhisperModel
 import noisereduce as nr
 import numpy as np
 import soundfile as sf
@@ -15,7 +15,7 @@ from config import API_ID, API_HASH, BOT_TOKEN
 bot = Client("TamilDubBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Load Whisper Model for STT
-whisper_model = whisper.load_model("small")  # Choose from tiny, small, medium, large
+whisper_model = WhisperModel("small")  # Choose from tiny, small, medium, large
 
 # Load Coqui TTS with a Tamil cloned voice
 tts_model = TTS("tts_models/multilingual/multi-dataset/your_clone_voice_model")
