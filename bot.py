@@ -18,7 +18,8 @@ bot = Client("TamilDubBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKE
 whisper_model = WhisperModel("small")  # Choose from tiny, small, medium, large
 
 # Load Coqui TTS with a Tamil cloned voice
-tts_model = TTS("tts_models/multilingual/multi-dataset/your_clone_voice_model")
+tts_model = TTS("tts_models/multilingual/multi-dataset/bark")
+
 
 translator = Translator()
 
