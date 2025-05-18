@@ -4,6 +4,8 @@ from pyrogram import Client, filters,
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
 
+app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN
+
 
 PROGRESS_BAR = """\n
 <b>📁 Size</b> : {1} | {2}
@@ -100,7 +102,7 @@ def extract_video_duration(file_path):
         duration = metadata.get("duration").seconds
     return duration
 
-app.on_message(filters.video | filters.document)
+@app.on_message(filters.video | filters.document)
 async def stream_remove(client, message):
     file_attr = getattr(message, message.media.value)
     filename = file_attr.file_name
