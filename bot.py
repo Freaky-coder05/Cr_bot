@@ -127,9 +127,17 @@ async def stream_remove(client, message):
 
     # 2️⃣ Tamil audio (or first audio)
     audio_indices = [i for i, s in enumerate(streams) if s["codec_type"] == "audio"]
-    tamil_idx = next((i for i in audio_indices
-                      if s := streams[i].get("tags", {})
-                      if s.get("language", "").lower() == "tam"), audio_indices[0])
+    # --- Tamil audio (or first audio) ---------------------------------
+    tamil_idx = None
+    for i in audio_indices:
+        tags = streams[i].get("tags", {})
+        if tags.get("language", "").lower() == "tam":
+            tamil_idx = i
+            break
+
+    if tamil_idx is None:          # fall back to first audio
+        tamil_idx = audio_indices[0]
+
     keep_map.append(tamil_idx)
 
     # 3️⃣ English subtitle if present
