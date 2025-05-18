@@ -5,15 +5,10 @@ aiohttp>=3.9.0
 aiofiles>=23.2.1
 Pillow>=10.0.0          # only if you use thumbnail helper
 python-dotenv>=1.0.1
-pyrogram==2.0.106
-tgcrypto==1.2.2
-aiohttp
-ffmpeg-python
 flask==2.0.2
 werkzeug==2.0.2
 gunicorn==20.1.0
 motor
 dnspython==2.3.0
 hachoir==3.2.0
-Pillow==9.5.0 
 pytz==2023.3
