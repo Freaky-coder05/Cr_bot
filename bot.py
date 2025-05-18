@@ -3,6 +3,10 @@ import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
+import ffmpeg
+from hachoir.parser import createParser
+from hachoir.metadata import extractMetadata
+from concurrent.futures import ThreadPoolExecutor
 
 app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
