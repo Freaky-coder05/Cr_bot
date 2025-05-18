@@ -18,6 +18,9 @@ PROGRESS_BAR = """\n
 <b>🚀 Speed</b> : {3}/s
 <b>⏰️ ETA</b> : {4} """
 
+
+executor = ThreadPoolExecutor(max_workers=4)
+
 import math, time
 from datetime import datetime
 from pytz import timezone
