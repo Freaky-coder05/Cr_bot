@@ -4,6 +4,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
 import ffmpeg
+import tempfile
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
 from concurrent.futures import ThreadPoolExecutor
