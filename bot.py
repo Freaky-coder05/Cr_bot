@@ -3,7 +3,7 @@ import asyncio
 import os
 from config import API_ID, API_HASH, BOT_TOKEN
 
-app=Client(API_ID=API_ID,API_HASH=API_HASH,BOT_TOKEN=BOT_TOKEN)
+app=Client(api_id=API_ID,api_hash=API_HASH,bot_token=BOT_TOKEN)
 
 audio_files=[]
 video_files=[]
