@@ -30,12 +30,12 @@ async def progress_handler(client,message):
 
     audio_man=audio_files.pop(0)
     ms=await message.reply_text("Downloading audio file")
-    down_aud= audio_man.download(file_name=f"audio_ep{episode_num}.mp3")
+    down_aud= await audio_man.download(file_name=f"audio_ep{episode_num}.mp3")
 
     for i in range (3):
         video_man=video_files.pop(0)
         await ms.edit("Downloading video file")
-        down_vid=video_man.download(file_name=f"Anime ep{episode_num} {i+1}.mp4")
+        down_vid = await video_man.download(file_name=f"Anime ep{episode_num} {i+1}.mp4")
         output_file=f"Ep{episode_num}-{['480p','720p','1080p'][i]}.mkv"
 
         await ms.edit("adding vide+audio...")
