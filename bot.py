@@ -26,14 +26,16 @@ async def progress_handler(client,message):
     global episode_num
     if len(audio_files)==0 or len(video_files)<3:
         await message.reply_text("Not enough files to start the process")
+
+
     audio_man=audio_files.pop(0)
     ms=await message.reply_text("Downloading audio file")
-    down_aud= audio_files.download(file_name=f"audio_ep{episode_num}.mp3")
+    down_aud= audio_man.download(file_name=f"audio_ep{episode_num}.mp3")
 
     for i in range (3):
         video_man=video_files.pop(0)
         await ms.edit("Downloading video file")
-        down_vid=video_files.download(file_name=f"Anime ep{episode_num} {i+1}.mp4")
+        down_vid=video_man.download(file_name=f"Anime ep{episode_num} {i+1}.mp4")
         output_file=f"Ep{episode_num}-{['480p','720p','1080p'][i]}.mkv"
 
         await ms.edit("adding vide+audio...")
@@ -53,9 +55,9 @@ async def progress_handler(client,message):
         await process.communicate()
         await ms.edit("uploading your file")
         await message.reply_video(output_file)
-        os.remove(video_files)
+        os.remove(down_vid)
     
-    os.remove(audio_files)
+    os.remove(down_aud)
     episode_num +=1
 
 @app.on_message(filters.command('start'))
