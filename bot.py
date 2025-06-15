@@ -1,6 +1,7 @@
 from pyrogram import Client,filters
 import asyncio
 import os
+from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
 
 app=Client("merger",api_id=API_ID,api_hash=API_HASH,bot_token=BOT_TOKEN)
@@ -10,7 +11,7 @@ video_files=[]
 
 episode_num=1
 
-app.on_message(filters.video | filters.document|filters.audio)
+@app.on_message(filters.video | filters.document|filters.audio)
 async def media_hadler (client,message):
     if message.video or message.document:
         video_files.append(message)
@@ -20,7 +21,7 @@ async def media_hadler (client,message):
         await message.reply_text("Unknown File Format")
 
 
-app.on_message(filters.command('start_process'))
+@app.on_message(filters.command('start_process'))
 async def progress_handler(client,message):
     global episode_num
     if len(audio_files)==0 or len(video_files)<3:
@@ -57,7 +58,7 @@ async def progress_handler(client,message):
     os.remove(audio_files)
     episode_num +=1
 
-app.on_message(filters.command('start'))
+@app.on_message(filters.command('start'))
 async def start_message(client,message):
     await message.reply_text("Hi Friends I am a automatic video+audio merge bot")
 
