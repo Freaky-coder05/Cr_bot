@@ -81,20 +81,11 @@ async def handle_forwarded(client, message):
 
     chat_id = message.forward_from_chat.id
 
-    try:
-        chat = await client.get_chat(chat_id)  # Get full chat info
-        member = await client.get_chat_member(chat_id, "me")
-
-        if member.status not in ["administrator", "creator"]:
-            await message.reply("❌ Bot is not admin in that channel.")
-            return
-
-        # Store the channel
-        channel_list[chat.id] = chat.title
-        await message.reply(f"✅ Channel '{chat.title}' added!")
-
-    except Exception as e:
-        await message.reply(f"⚠️ Error: {e}")
+    chat = message.forward_from_chat
+    chat_id = chat.id
+    title = chat.title or "Unknown Title"
+    channel_list[chat_id] = chat.title
+    await message.reply(f"✅ Channel '{chat.title}' added!")
 
 @app.on_message(filters.command("view_channels"))
 async def view_channels(client, message):
