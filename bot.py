@@ -70,20 +70,31 @@ async def add_channel(client, message):
     await message.reply("Please forward a message from the channel you want to add.")
 
 
+
 @app.on_message(filters.forwarded)
 async def handle_forwarded(client, message):
     global channel_list
+
     if not message.forward_from_chat:
         await message.reply("This doesn't seem to be from a channel.")
         return
 
-    chat = message.forward_from_chat.id
+    chat_id = message.forward_from_chat.id
 
-    
+    try:
+        chat = await client.get_chat(chat_id)  # Get full chat info
+        member = await client.get_chat_member(chat_id, "me")
 
-    channel_list[chat.id] = chat.title
-    await message.reply(f"Channel '{chat.title}' added!")
+        if member.status not in ["administrator", "creator"]:
+            await message.reply("❌ Bot is not admin in that channel.")
+            return
 
+        # Store the channel
+        channel_list[chat.id] = chat.title
+        await message.reply(f"✅ Channel '{chat.title}' added!")
+
+    except Exception as e:
+        await message.reply(f"⚠️ Error: {e}")
 
 @app.on_message(filters.command("view_channels"))
 async def view_channels(client, message):
