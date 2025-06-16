@@ -77,17 +77,9 @@ async def handle_forwarded(client, message):
         await message.reply("This doesn't seem to be from a channel.")
         return
 
-    chat = message.forward_from_chat
+    chat = message.forward_from_chat.id
 
-    # Check if bot is admin
-    try:
-        member = await client.get_chat_member(chat.id, "me")
-        if member.status not in ["administrator", "creator"]:
-            await message.reply("Bot is not admin in that channel.")
-            return
-    except Exception as e:
-        await message.reply(f"Error: {e}")
-        return
+    
 
     channel_list[chat.id] = chat.title
     await message.reply(f"Channel '{chat.title}' added!")
