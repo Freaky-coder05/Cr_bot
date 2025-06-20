@@ -13,6 +13,14 @@ channel_list = {}
 selected_channel = None
 episode_num=1
 
+
+@app.on_message(filters.command('set_ep'))
+async def episodes (client,message):
+    global episode_num
+    episode_num=message.text.split(',')[1]
+    await message.reply_text(f"{episode_num}Set Successful")
+
+
 @app.on_message(filters.video | filters.document|filters.audio)
 async def media_hadler (client,message):
     if message.video or message.document:
