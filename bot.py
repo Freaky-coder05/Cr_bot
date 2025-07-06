@@ -2,6 +2,10 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
 import asyncio 
+import pyrogram.utils
+
+pyrogram.utils.MIN_CHAT_ID = -999999999999
+pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
 SOURCE_CHANNEL_ID=-1002160455430
 DESTINATION_CHANNEL_ID=-1002851677744
