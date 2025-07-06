@@ -6,7 +6,7 @@ DESTINATION_CHANNEL_ID = -1002851677744  # Replace with destination channel ID
 
 app = Client("button_forward_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@app.on_message(filters.forward)
+@app.on_message(filters.forwarded)
 async def forward_button_post(client: Client, message: Message):
     if message.reply_markup:
         try:
