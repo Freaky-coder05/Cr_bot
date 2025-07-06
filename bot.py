@@ -1,6 +1,7 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN
+
 import asyncio 
 import pyrogram.utils
 
@@ -10,39 +11,47 @@ pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 SOURCE_CHANNEL_ID=-1002160455430
 DESTINATION_CHANNEL_ID=-1002851677744
 
-app = Client("channel_copier_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("button_copy_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Start command to initiate copy
-@app.on_message(filters.command("start") & filters.private)
-async def start_handler(client: Client, message: Message):
-    await message.reply_text("Send /copy to start copying messages from source channel.")
-
-# /copy command to begin copying all messages
 @app.on_message(filters.command("copy") & filters.private)
-async def copy_channel_messages(client: Client, message: Message):
-    await message.reply_text("Starting to copy messages...")
+async def copy_post_with_buttons(client: Client, message: Message):
+    try:
+        msg_id = int(message.text.split(" ", 1)[1])  # Usage: /copy 123
+        src_msg = await client.get_messages(SOURCE_CHANNEL_ID, msg_id)
 
-    source_id = SOURCE_CHANNEL_ID   # e.g., -1001234567890
-    dest_id = DESTINATION_CHANNEL_ID  # e.g., -1009876543210
+        # Download media (e.g. photo)
+        media_file = await client.download_media(src_msg) if src_msg.media else None
 
-    # Start from message ID 1 (Telegram messages start from 1)
-    current_msg_id = 1
-    copied_count = 0
+        # Extract inline buttons
+        buttons = []
+        if src_msg.reply_markup:
+            for row in src_msg.reply_markup.inline_keyboard:
+                button_row = []
+                for button in row:
+                    if button.url:
+                        button_row.append(InlineKeyboardButton(text=button.text, url=button.url))
+                if button_row:
+                    buttons.append(button_row)
 
-    while True:
-        try:
-            msg = await client.get_messages(source_id, current_msg_id)
-            if not msg:
-                break  # No more messages
-            await asyncio.sleep(5)
-            await msg.copy(dest_id)
-            copied_count += 1
-            print(f"Copied message {current_msg_id}")
-        except Exception as e:
-            print(f"Error at message {current_msg_id}: {e}")
-        current_msg_id += 1
+        # Send re-created post to destination channel
+        if media_file:
+            await client.send_photo(
+                chat_id=DESTINATION_CHANNEL_ID,
+                photo=media_file,
+                caption=src_msg.caption,
+                reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
+            )
+        else:
+            await client.send_message(
+                chat_id=DESTINATION_CHANNEL_ID,
+                text=src_msg.text or src_msg.caption or "No content",
+                reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
+            )
 
-    await message.reply_text(f"Finished copying {copied_count} messages.")
+        await message.reply_text("✅ Post copied with original buttons.")
+    
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     print("Bot is running...")
