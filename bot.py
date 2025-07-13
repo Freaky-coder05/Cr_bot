@@ -8,7 +8,7 @@ app = Client("auto_audio_renamer_bot", api_id=API_ID, api_hash=API_HASH, bot_tok
 # To store audio messages temporarily
 audio_queue = []
 
-@app.on_message(filters.audio | filters.voice)
+@app.on_message(filters.audio | filters.voice | filters.document)
 async def queue_audio(client: Client, message: Message):
     audio_queue.append(message)
     await message.reply_text("✅ Audio received and added to queue.")
