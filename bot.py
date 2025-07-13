@@ -1,58 +1,77 @@
+import os
+import asyncio
+import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN
+from pyrogram.enums import ChatAction
+from pydub.utils import mediainfo
+import humanize
 
-import asyncio 
-import pyrogram.utils
+# Temporary list to store audio messages
+audio_queue = []
 
-pyrogram.utils.MIN_CHAT_ID = -999999999999
-pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
+app = Client("audio_compressor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-SOURCE_CHANNEL_ID=-1002160455430
-DESTINATION_CHANNEL_ID=-1002851677744
+# Ensure temp folders exist
+os.makedirs("downloads", exist_ok=True)
+os.makedirs("compressed", exist_ok=True)
 
-app = Client("button_copy_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+@app.on_message(filters.private & filters.audio)
+async def queue_audio(client: Client, message: Message):
+    audio_queue.append(message)
+    await message.reply_text(f"🎧 Added `{message.audio.file_name}` to queue.\nUse /start_process to compress and receive.")
 
-@app.on_message(filters.command("copy") & filters.private)
-async def copy_post_with_buttons(client: Client, message: Message):
-    try:
-        msg_id = int(message.text.split(" ", 1)[1])  # Usage: /copy 123
-        src_msg = await client.get_messages(SOURCE_CHANNEL_ID, msg_id)
+@app.on_message(filters.command("start_process") & filters.private)
+async def process_audio(client: Client, message: Message):
+    if not audio_queue:
+        return await message.reply("❌ No audio messages in queue.")
 
-        # Download media (e.g. photo)
-        media_file = await client.download_media(src_msg) if src_msg.media else None
+    await message.reply("🔁 Starting compression process...")
 
-        # Extract inline buttons
-        buttons = []
-        if src_msg.reply_markup:
-            for row in src_msg.reply_markup.inline_keyboard:
-                button_row = []
-                for button in row:
-                    if button.url:
-                        button_row.append(InlineKeyboardButton(text=button.text, url=button.url))
-                if button_row:
-                    buttons.append(button_row)
+    for audio_msg in audio_queue:
+        try:
+            file_name = audio_msg.audio.file_name or f"{audio_msg.audio.file_unique_id}.ogg"
+            input_path = f"downloads/{file_name}"
+            output_path = f"compressed/{os.path.splitext(file_name)[0]}_compressed.ogg"
 
-        # Send re-created post to destination channel
-        if media_file:
-            await client.send_photo(
-                chat_id=DESTINATION_CHANNEL_ID,
-                photo=media_file,
-                caption=src_msg.caption,
-                reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
-            )
-        else:
-            await client.send_message(
-                chat_id=DESTINATION_CHANNEL_ID,
-                text=src_msg.text or src_msg.caption or "No content",
-                reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
-            )
+            await message.reply_chat_action(ChatAction.UPLOAD_DOCUMENT)
+            await audio_msg.download(file_name=input_path)
 
-        await message.reply_text("✅ Post copied with original buttons.")
-    
-    except Exception as e:
-        await message.reply_text(f"❌ Error: {e}")
+            # Compress with ffmpeg
+            cmd = [
+                "ffmpeg",
+                "-i", input_path,
+                "-c:a", "libopus",
+                "-b:a", "32k",
+                "-y",
+                output_path
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-if __name__ == "__main__":
-    print("Bot is running...")
-    app.run()
+            # Get metadata
+            info = mediainfo(output_path)
+            duration = float(info.get("duration", 0))
+            size = os.path.getsize(output_path)
+
+            mins = int(duration) // 60
+            secs = int(duration) % 60
+            caption = f"🎵 **{os.path.basename(output_path)}**\n📦 Size: `{humanize.naturalsize(size)}`\n⏱ Duration: `{mins}:{secs:02d}`"
+
+            await audio_msg.reply_document(output_path, caption=caption)
+
+        except Exception as e:
+            await message.reply(f"❌ Error processing: {str(e)}")
+        finally:
+            # Clean up
+            if os.path.exists(input_path): os.remove(input_path)
+            if os.path.exists(output_path): os.remove(output_path)
+
+    audio_queue.clear()
+    await message.reply("✅ All files compressed and sent.")
+
+@app.on_message(filters.command("start") & filters.private)
+async def start_cmd(client, message):
+    await message.reply("👋 Send audio files. Use /start_process to compress all to 32kbps Opus and receive them.")
+
+app.run()
