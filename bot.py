@@ -33,10 +33,9 @@ async def process_audio(client: Client, message: Message):
 
             # Get file info
             file_size = os.path.getsize(downloaded_path) / 1024  # in KB
-            duration = audio_msg.audio.duration if audio_msg.audio else audio_msg.voice.duration
-
+            
             # Upload audio file
-            caption = f"🎵 **{final_name}**\n📦 Size: {int(file_size)} KB\n⏱️ Duration: {duration} sec"
+            caption = f"🎵 **{final_name}**\n📦 Size: {int(file_size)} KB"
             await client.send_audio(
                 chat_id=message.chat.id,
                 audio=downloaded_path,
