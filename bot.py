@@ -1,77 +1,54 @@
-import os
-import asyncio
-import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
+import os
 from config import API_ID, API_HASH, BOT_TOKEN
-from pyrogram.enums import ChatAction
-from pydub.utils import mediainfo
-import humanize
 
-# Temporary list to store audio messages
+app = Client("auto_audio_renamer_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# To store audio messages temporarily
 audio_queue = []
 
-app = Client("audio_compressor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Ensure temp folders exist
-os.makedirs("downloads", exist_ok=True)
-os.makedirs("compressed", exist_ok=True)
-
-@app.on_message(filters.private & filters.audio)
+@app.on_message(filters.audio | filters.voice)
 async def queue_audio(client: Client, message: Message):
     audio_queue.append(message)
-    await message.reply_text(f"🎧 Added `{message.audio.file_name}` to queue.\nUse /start_process to compress and receive.")
+    await message.reply_text("✅ Audio received and added to queue.")
 
-@app.on_message(filters.command("start_process") & filters.private)
+@app.on_message(filters.command("start_process"))
 async def process_audio(client: Client, message: Message):
     if not audio_queue:
-        return await message.reply("❌ No audio messages in queue.")
+        await message.reply_text("❌ Queue is empty.")
+        return
 
-    await message.reply("🔁 Starting compression process...")
+    await message.reply_text("⚙️ Starting renaming process...")
 
-    for audio_msg in audio_queue:
+    for idx, audio_msg in enumerate(audio_queue):
         try:
-            file_name = audio_msg.audio.file_name or f"{audio_msg.audio.file_unique_id}.ogg"
-            input_path = f"downloads/{file_name}"
-            output_path = f"compressed/{os.path.splitext(file_name)[0]}_compressed.ogg"
+            # Get original file name if available
+            orig_name = audio_msg.audio.file_name if audio_msg.audio else f"voice_{idx+1}.ogg"
+            base_name = os.path.splitext(orig_name)[0]
+            final_name = base_name + ".opus"
 
-            await message.reply_chat_action(ChatAction.UPLOAD_DOCUMENT)
-            await audio_msg.download(file_name=input_path)
+            # Download the file
+            downloaded_path = await audio_msg.download(file_name=final_name)
 
-            # Compress with ffmpeg
-            cmd = [
-                "ffmpeg",
-                "-i", input_path,
-                "-c:a", "libopus",
-                "-b:a", "32k",
-                "-y",
-                output_path
-            ]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Get file info
+            file_size = os.path.getsize(downloaded_path) / 1024  # in KB
+            duration = audio_msg.audio.duration if audio_msg.audio else audio_msg.voice.duration
 
-            # Get metadata
-            info = mediainfo(output_path)
-            duration = float(info.get("duration", 0))
-            size = os.path.getsize(output_path)
+            # Upload audio file
+            caption = f"🎵 **{final_name}**\n📦 Size: {int(file_size)} KB\n⏱️ Duration: {duration} sec"
+            await client.send_audio(
+                chat_id=message.chat.id,
+                audio=downloaded_path,
+                caption=caption
+            )
 
-            mins = int(duration) // 60
-            secs = int(duration) % 60
-            caption = f"🎵 **{os.path.basename(output_path)}**\n📦 Size: `{humanize.naturalsize(size)}`\n⏱ Duration: `{mins}:{secs:02d}`"
-
-            await audio_msg.reply_document(output_path, caption=caption)
+            os.remove(downloaded_path)  # Clean up
 
         except Exception as e:
-            await message.reply(f"❌ Error processing: {str(e)}")
-        finally:
-            # Clean up
-            if os.path.exists(input_path): os.remove(input_path)
-            if os.path.exists(output_path): os.remove(output_path)
+            await message.reply_text(f"❌ Error: {e}")
 
     audio_queue.clear()
-    await message.reply("✅ All files compressed and sent.")
-
-@app.on_message(filters.command("start") & filters.private)
-async def start_cmd(client, message):
-    await message.reply("👋 Send audio files. Use /start_process to compress all to 32kbps Opus and receive them.")
+    await message.reply_text("✅ All audios renamed and uploaded.")
 
 app.run()
