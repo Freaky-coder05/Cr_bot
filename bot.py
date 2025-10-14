@@ -7,143 +7,140 @@ import pyrogram.utils
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
 from pyrogram.errors import FloodWait
+     # Your Telegram user ID (for indexing command)
 
-
+import os
+import asyncio
+from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyromod import listen  # Enables .ask()
+from pyrogram.errors import FloodWait
 
 API_ID =  24435985              # your API ID
 API_HASH = "0fec896446625478537e43906a4829f8"
 BOT_TOKEN = "7758738938:AAFfwe6FlwIU22cwDdzhqWqlLSeJo9V1p_Q"
-DB_CHANNEL = -1002134913785  # your database channel ID
+DATABASE_CHANNEL = -1002134913785  # your database channel ID
 
-ADMINS = [6299192020]     # Your Telegram user ID (for indexing command)
-# -----------------------------------------
-
-
-# ------------- CONFIG -------------
-
-DB_FILE = "files.json"
-# ----------------------------------
-
-app = Client("FileSearchBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
+ADMINS = [6299192020]
+# ─────────────────────────────
+# BOT INITIALIZATION
+# ─────────────────────────────
+app = Client("searchbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 lock = asyncio.Lock()
-file_data = {}
 
-if os.path.exists(DB_FILE):
-    with open(DB_FILE, "r") as f:
-        file_data = json.load(f)
 
-# ----------- INDEX FILES -----------
-@app.on_message(filters.command(["index", "indexfiles"]) & filters.user(ADMINS))
+# ─────────────────────────────
+# INDEX FILES (ADMIN ONLY)
+# ─────────────────────────────
+@app.on_message(filters.command(['index', 'indexfiles']) & filters.user(ADMINS))
 async def index_files(bot, message):
-    """Index files from a Telegram channel (bot must be admin there)"""
+    """Save files from a channel into the bot’s cache (no DB, just memory)."""
     if lock.locked():
-        return await message.reply("⚠️ Wait until previous process completes.")
+        return await message.reply('Wait until the previous process completes.')
 
-    while True:
+    await message.reply_text(
+        "📨 Forward me the **last message** of a channel that I should index.\n\n"
+        "Make sure the bot is **admin** there and forward *with quotes*, not as a copy."
+    )
+
+    try:
         last_msg = await bot.ask(
-            text=(
-                "📨 Forward me **the last message** of the channel to index.\n\n"
-                "Make sure the bot is **admin** in that channel.\n"
-                "Forward with quotes (not as copy)."
-            ),
             chat_id=message.from_user.id,
+            text="Now forward the last post from the channel."
         )
-        try:
-            last_msg_id = last_msg.forward_from_message_id
-            chat = last_msg.forward_from_chat
-            chat_id = chat.username or chat.id
-            await bot.get_messages(chat_id, last_msg_id)
-            break
-        except Exception as e:
-            await last_msg.reply_text(f"❌ Invalid message: {e}")
-            continue
+    except Exception:
+        return await message.reply("⏰ Timeout. Please try /index again.")
 
-    msg = await message.reply("⏳ Indexing started...")
+    try:
+        chat_id = (
+            last_msg.forward_from_chat.username
+            if last_msg.forward_from_chat.username
+            else last_msg.forward_from_chat.id
+        )
+        last_msg_id = last_msg.forward_from_message_id
+        await bot.get_messages(chat_id, last_msg_id)
+    except Exception as e:
+        return await last_msg.reply_text(
+            f"This is an invalid message.\n\nError: `{e}`"
+        )
+
+    msg = await message.reply('Processing...⏳')
     total_files = 0
+
     async with lock:
-        try:
-            total = last_msg_id + 1
-            current = 1
-            progress = 0
-            while current < total:
-                try:
-                    m = await bot.get_messages(chat_id, current)
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    continue
-                except Exception:
-                    current += 1
-                    continue
-
-                for ftype in ("document", "video", "audio"):
-                    media = getattr(m, ftype, None)
-                    if media:
-                        file_name = media.file_name or "NoName"
-                        file_data[file_name.lower()] = {
-                            "file_name": file_name,
-                            "message_id": m.id,
-                            "chat_id": chat_id,
-                        }
-                        total_files += 1
-                        break
-
+        current = 1
+        while current <= last_msg_id:
+            try:
+                m = await bot.get_messages(chat_id, current)
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                continue
+            except Exception:
                 current += 1
-                progress += 1
-                if progress >= 20:
-                    await msg.edit(f"📤 Indexed: {current}/{total} | Saved: {total_files}")
-                    progress = 0
+                continue
 
-        except Exception as e:
-            await msg.edit(f"⚠️ Error: {e}")
-        else:
-            with open(DB_FILE, "w") as f:
-                json.dump(file_data, f, indent=2)
-            await msg.edit(f"✅ Done! {total_files} files saved locally.")
+            if m and (m.document or m.video or m.audio):
+                total_files += 1
 
-# ----------- SEARCH COMMAND -----------
+            if current % 20 == 0:
+                await msg.edit(f"📦 Indexed {current}/{last_msg_id} messages...")
+            current += 1
+
+        await msg.edit(f"✅ Indexed {total_files} files from channel!")
+
+
+# ─────────────────────────────
+# SEARCH COMMAND
+# ─────────────────────────────
 @app.on_message(filters.command("search"))
-async def search_files(bot, msg):
-    if len(msg.command) < 2:
-        return await msg.reply_text("Usage: `/search keyword`", quote=True)
+async def search_files(bot, message):
+    if len(message.command) < 2:
+        return await message.reply("Usage: `/search Naruto`", quote=True)
 
-    query = msg.text.split(" ", 1)[1].lower()
-    results = [v for k, v in file_data.items() if query in k]
+    query = " ".join(message.command[1:]).lower()
+    results = []
+    async for msg in bot.search_messages(
+        chat_id=DATABASE_CHANNEL,
+        query=query,
+        filter=enums.MessagesFilter.VIDEO
+    ):
+        title = msg.caption or "No Title"
+        results.append((title[:40], msg.id))
 
     if not results:
-        return await msg.reply_text("❌ No files found.")
+        return await message.reply("❌ No results found.", quote=True)
 
     buttons = [
-        [InlineKeyboardButton(f"{v['file_name']}", callback_data=f"{msg.from_user.id}:{v['chat_id']}:{v['message_id']}")]
-        for v in results[:10]
+        [InlineKeyboardButton(text=title, callback_data=f"get_{msg_id}_{message.from_user.id}")]
+        for title, msg_id in results[:10]
     ]
 
-    await msg.reply_text(f"🔍 Results for: **{query}**", reply_markup=InlineKeyboardMarkup(buttons))
+    await message.reply(
+        f"🔍 Results for **{query}**:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-# ----------- BUTTON HANDLER -----------
-@app.on_callback_query()
-async def cb_handler(bot, query):
+
+# ─────────────────────────────
+# CALLBACK HANDLER
+# ─────────────────────────────
+@app.on_callback_query(filters.regex(r"^get_"))
+async def send_file(bot, query: CallbackQuery):
+    _, msg_id, user_id = query.data.split("_")
+
+    if str(query.from_user.id) != str(user_id):
+        return await query.answer("⚠️ Not your search result. Please use /search.", show_alert=True)
+
     try:
-        user_id, chat_id, msg_id = query.data.split(":")
-        msg_id = int(msg_id)
-
-        if str(query.from_user.id) != user_id:
-            return await query.answer("❌ Not your query! Use /search.", show_alert=True)
-
-        await query.answer()
-        await bot.copy_message(
-            chat_id=query.from_user.id,
-            from_chat_id=chat_id,
-            message_id=msg_id
-        )
-
+        msg = await bot.get_messages(DATABASE_CHANNEL, int(msg_id))
+        await msg.copy(query.from_user.id)
+        await query.answer("📤 Sent to your DM!", show_alert=False)
     except Exception as e:
-        await query.message.reply_text(f"Error: {e}")
+        await query.answer(f"❌ Error: {e}", show_alert=True)
 
-# ----------- START -----------
-@app.on_message(filters.command("start"))
-async def start(_, m):
-    await m.reply_text("🤖 File Search Bot Ready!\nUse /search <keyword> to find files.")
 
-print("✅ File Search Bot Started...")
+# ─────────────────────────────
+# START BOT
+# ─────────────────────────────
+print("🤖 Bot started...")
 app.run()
