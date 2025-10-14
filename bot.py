@@ -1,56 +1,47 @@
-from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton,CallbackQuery
-import json, os
+import os
+import json
 import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyromod import listen
+from pyrogram.errors import FloodWait
 import pyrogram.utils
 
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
-from pyrogram.errors import FloodWait
-     # Your Telegram user ID (for indexing command)
-
-import os
-import asyncio
-from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyromod import listen  # Enables .ask()
-from pyrogram.errors import FloodWait
 
 API_ID =  24435985              # your API ID
 API_HASH = "0fec896446625478537e43906a4829f8"
 BOT_TOKEN = "7758738938:AAFfwe6FlwIU22cwDdzhqWqlLSeJo9V1p_Q"
-DATABASE_CHANNEL = -1002134913785  # your database channel ID
+DATABASE_CHANNEL = -1003094784222  # your database channel ID
 
 ADMINS = [6299192020]
-# ─────────────────────────────
-# BOT INITIALIZATION
-# ─────────────────────────────
+
+INDEX_FILE = "index.json"
+
 app = Client("searchbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 lock = asyncio.Lock()
 
+# Load index from file
+if os.path.exists(INDEX_FILE):
+    with open(INDEX_FILE, "r") as f:
+        FILE_INDEX = json.load(f)
+else:
+    FILE_INDEX = []
 
-# ─────────────────────────────
-# INDEX FILES (ADMIN ONLY)
-# ─────────────────────────────
-@app.on_message(filters.command(['index', 'indexfiles']) & filters.user(ADMINS))
+
+# ───────────────────────────────────────
+# INDEX FILES
+# ───────────────────────────────────────
+@app.on_message(filters.command(['index']) & filters.user(ADMINS))
 async def index_files(bot, message):
-    """Save files from a channel into the bot’s cache (no DB, just memory)."""
+    """Index all media from a channel and store titles in a local JSON."""
     if lock.locked():
-        return await message.reply('Wait until the previous process completes.')
+        return await message.reply("Please wait, another indexing is in progress.")
 
-    await message.reply_text(
-        "📨 Forward me the **last message** of a channel that I should index.\n\n"
-        "Make sure the bot is **admin** there and forward *with quotes*, not as a copy."
-    )
+    await message.reply("Forward the **last message** of the channel (with quote).")
 
-    try:
-        last_msg = await bot.ask(
-            chat_id=message.from_user.id,
-            text="Now forward the last post from the channel."
-        )
-    except Exception:
-        return await message.reply("⏰ Timeout. Please try /index again.")
-
+    last_msg = await bot.ask(message.chat.id, "📩 Now forward the last message from the channel.")
     try:
         chat_id = (
             last_msg.forward_from_chat.username
@@ -58,61 +49,63 @@ async def index_files(bot, message):
             else last_msg.forward_from_chat.id
         )
         last_msg_id = last_msg.forward_from_message_id
-        await bot.get_messages(chat_id, last_msg_id)
     except Exception as e:
-        return await last_msg.reply_text(
-            f"This is an invalid message.\n\nError: `{e}`"
-        )
+        return await last_msg.reply(f"Invalid message: {e}")
 
-    msg = await message.reply('Processing...⏳')
+    msg = await message.reply("Indexing started...")
+
     total_files = 0
+    new_index = []
 
     async with lock:
-        current = 1
-        while current <= last_msg_id:
+        for i in range(1, last_msg_id + 1):
             try:
-                m = await bot.get_messages(chat_id, current)
+                m = await bot.get_messages(chat_id, i)
             except FloodWait as e:
                 await asyncio.sleep(e.value)
                 continue
             except Exception:
-                current += 1
                 continue
 
-            if m and (m.document or m.video or m.audio):
-                total_files += 1
+            if not (m.document or m.video or m.audio):
+                continue
 
-            if current % 20 == 0:
-                await msg.edit(f"📦 Indexed {current}/{last_msg_id} messages...")
-            current += 1
+            caption = m.caption or "No Title"
+            new_index.append({"title": caption, "id": m.id})
+            total_files += 1
 
-        await msg.edit(f"✅ Indexed {total_files} files from channel!")
+            if total_files % 20 == 0:
+                await msg.edit(f"Indexed {total_files} files...")
+
+    FILE_INDEX.clear()
+    FILE_INDEX.extend(new_index)
+
+    with open(INDEX_FILE, "w") as f:
+        json.dump(FILE_INDEX, f, indent=2)
+
+    await msg.edit(f"✅ Indexed {total_files} files!")
 
 
-# ─────────────────────────────
+# ───────────────────────────────────────
 # SEARCH COMMAND
-# ─────────────────────────────
+# ───────────────────────────────────────
 @app.on_message(filters.command("search"))
 async def search_files(bot, message):
     if len(message.command) < 2:
-        return await message.reply("Usage: `/search Naruto`", quote=True)
+        return await message.reply("Usage: /search Naruto")
 
     query = " ".join(message.command[1:]).lower()
-    results = []
-    async for msg in bot.search_messages(
-        chat_id=DATABASE_CHANNEL,
-        query=query,
-        filter=enums.MessagesFilter.VIDEO
-    ):
-        title = msg.caption or "No Title"
-        results.append((title[:40], msg.id))
+
+    results = [
+        f for f in FILE_INDEX if query in f["title"].lower()
+    ][:10]  # Limit to top 10 results
 
     if not results:
-        return await message.reply("❌ No results found.", quote=True)
+        return await message.reply("❌ No results found.")
 
     buttons = [
-        [InlineKeyboardButton(text=title, callback_data=f"get_{msg_id}_{message.from_user.id}")]
-        for title, msg_id in results[:10]
+        [InlineKeyboardButton(text=f["title"][:40], callback_data=f"get_{f['id']}_{message.from_user.id}")]
+        for f in results
     ]
 
     await message.reply(
@@ -121,26 +114,26 @@ async def search_files(bot, message):
     )
 
 
-# ─────────────────────────────
+# ───────────────────────────────────────
 # CALLBACK HANDLER
-# ─────────────────────────────
+# ───────────────────────────────────────
 @app.on_callback_query(filters.regex(r"^get_"))
 async def send_file(bot, query: CallbackQuery):
     _, msg_id, user_id = query.data.split("_")
 
     if str(query.from_user.id) != str(user_id):
-        return await query.answer("⚠️ Not your search result. Please use /search.", show_alert=True)
+        return await query.answer("⚠️ Not your search result. Use /search yourself.", show_alert=True)
 
     try:
-        msg = await bot.get_messages(DATABASE_CHANNEL, int(msg_id))
-        await msg.copy(query.from_user.id)
+        await bot.copy_message(
+            chat_id=query.from_user.id,
+            from_chat_id=DATABASE_CHANNEL,
+            message_id=int(msg_id)
+        )
         await query.answer("📤 Sent to your DM!", show_alert=False)
     except Exception as e:
         await query.answer(f"❌ Error: {e}", show_alert=True)
 
 
-# ─────────────────────────────
-# START BOT
-# ─────────────────────────────
-print("🤖 Bot started...")
+print("🤖 Bot is running...")
 app.run()
