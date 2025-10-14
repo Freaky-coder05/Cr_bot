@@ -36,7 +36,7 @@ async def search_files(client, message):
 
     msg = await message.reply_text("🔎 Searching in database...")
     results = []
-    async for msg_in_channel in client.search_messages(DB_CHANNEL, query=query, filter="document", limit=50):
+    async for msg_in_channel in client.search_messages(DB_CHANNEL, query=query, filter=pyrogram.enums.MessagesFilter.DOCUMENT, limit=50):
         if not msg_in_channel.document:
             continue
         title = msg_in_channel.document.file_name
