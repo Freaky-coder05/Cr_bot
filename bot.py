@@ -8,6 +8,7 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyromod import listen
 from pyrogram.errors import FloodWait, Forbidden
+from pyrogram.enums import ChatAction
 import pyrogram.utils
 
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
@@ -194,13 +195,19 @@ async def send_file(bot, query: CallbackQuery):
         if str(query.from_user.id) != str(user_id):
             return await query.answer("⚠️ Not your result!", show_alert=True)
 
-        await bot.send_chat_action(query.from_user.id, "upload_document")
-        await bot.copy_message(chat_id=query.from_user.id, from_chat_id=DATABASE_CHANNEL, message_id=int(msg_id))
+        from pyrogram.enums import ChatAction
+        await bot.send_chat_action(query.from_user.id, ChatAction.UPLOAD_DOCUMENT)
+        await bot.copy_message(
+            chat_id=query.from_user.id,
+            from_chat_id=DATABASE_CHANNEL,
+            message_id=int(msg_id)
+        )
         await query.answer("📤 Sent to your DM!", show_alert=False)
     except Forbidden:
         await query.answer(f"📩 Start the bot first!\n👉 t.me/{BOT_USERNAME}", show_alert=True)
     except Exception as e:
-        logger.error(traceback.format_exc())
+        import traceback
+        print(traceback.format_exc())
         await query.answer(f"❌ Error: {e}", show_alert=True)
 
 # ───────────── SEND ALL ─────────────
