@@ -1,5 +1,6 @@
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton,CallbackQuery
+import json, os
 import asyncio
 import pyrogram.utils
 
@@ -11,101 +12,87 @@ API_HASH = "0fec896446625478537e43906a4829f8"
 BOT_TOKEN = "7758738938:AAFfwe6FlwIU22cwDdzhqWqlLSeJo9V1p_Q"
 DB_CHANNEL = -1002134913785  # your database channel ID
 
-bot = Client("FileSearchBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+OWNER_ID = 6299192020         # Your Telegram user ID (for indexing command)
+# -----------------------------------------
 
-# In-memory dictionary to remember which user created which search
-user_search_map = {}
+app = Client("FileSearchBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+DB_FILE = "files.json"
 
+# Load existing data
+if os.path.exists(DB_FILE):
+    with open(DB_FILE, "r") as f:
+        file_data = json.load(f)
+else:
+    file_data = {}
 
-# ===========================
-# /start command
-# ===========================
-@bot.on_message(filters.command("start"))
-async def start(_, message):
-    await message.reply_text("👋 Hello! Use `/search <name>` to find anime files.")
+# ----------- INDEX COMMAND --------------
+@app.on_message(filters.command("index") & filters.user(OWNER_ID))
+async def index_files(_, msg):
+    await msg.reply_text("📦 Indexing files from channel, please wait...")
 
+    all_files = {}
+    async for m in app.get_chat_history(DB_CHANNEL):
+        if m.document:
+            all_files[m.document.file_name.lower()] = {
+                "file_name": m.document.file_name,
+                "message_id": m.id,
+                "file_size": m.document.file_size
+            }
 
-# ===========================
-# /search command
-# ===========================
-@bot.on_message(filters.command("search"))
-async def search_files(client, message):
-    query = " ".join(message.command[1:])
-    if not query:
-        return await message.reply_text("❌ Usage: `/search Naruto Shippuden`", quote=True)
+    with open(DB_FILE, "w") as f:
+        json.dump(all_files, f, indent=2)
 
-    msg = await message.reply_text("🔎 Searching in database...")
-    results = []
-    async for msg_in_channel in client.search_messages(DB_CHANNEL, query=query, filter=pyrogram.enums.MessagesFilter.DOCUMENT, limit=50):
-        if not msg_in_channel.document:
-            continue
-        title = msg_in_channel.document.file_name
-        size = round(msg_in_channel.document.file_size / (1024 * 1024), 2)
-        message_id = msg_in_channel.id
-        results.append((f"[{size} MB] {title}", message_id))
+    global file_data
+    file_data = all_files
+
+    await msg.reply_text(f"✅ Indexed {len(all_files)} files from channel.")
+
+# ----------- SEARCH COMMAND --------------
+@app.on_message(filters.command("search"))
+async def search_files(_, msg):
+    if len(msg.command) < 2:
+        return await msg.reply_text("Usage: `/search Naruto`", quote=True)
+
+    query = msg.text.split(" ", 1)[1].lower()
+    results = [v for k, v in file_data.items() if query in k]
 
     if not results:
-        return await msg.edit("❌ No results found.")
+        return await msg.reply_text("❌ No results found.")
 
-    # Create inline buttons
-    buttons = [
-        [InlineKeyboardButton(text=name[:60], callback_data=f"get_{message.from_user.id}_{mid}")]
-        for name, mid in results[:10]
-    ]
+    buttons = []
+    for i, file in enumerate(results[:10]):
+        buttons.append([InlineKeyboardButton(
+            f"{file['file_name']}", callback_data=f"{msg.from_user.id}:{file['message_id']}")])
 
-    markup = InlineKeyboardMarkup(buttons + [[InlineKeyboardButton("PAGE 1 / 1", callback_data="noop")]])
-
-    await msg.edit_text(
-        f"🔍 **Results for:** `{query}`\n\n⚠️ After 5 minutes this message will be automatically deleted.",
-        reply_markup=markup
+    await msg.reply_text(
+        f"🔍 **Results for:** {query}",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-    # Save the user ID for this message
-    user_search_map[msg.id] = message.from_user.id
-
-    # Auto delete after 5 minutes
-    await asyncio.sleep(300)
+# ----------- CALLBACK HANDLER --------------
+@app.on_callback_query()
+async def cb_handler(_, query: CallbackQuery):
     try:
-        await msg.delete()
-        if msg.id in user_search_map:
-            del user_search_map[msg.id]
-    except:
-        pass
+        user_id, msg_id = query.data.split(":")
+        msg_id = int(msg_id)
 
+        if str(query.from_user.id) != user_id:
+            return await query.answer("❌ Not your query! Use /search.", show_alert=True)
 
-# ===========================
-# Button click — message.copy
-# ===========================
-@bot.on_callback_query(filters.regex("^get_"))
-async def get_file(client, query):
-    # Extract original user ID and message ID
-    data = query.data.split("_", 2)
-    owner_id = int(data[1])
-    msg_id = int(data[2])
-
-    # Check if the button clicker is the same person
-    if query.from_user.id != owner_id:
-        return await query.answer("⚠️ Not your search result. Please use /search command.", show_alert=True)
-
-    await query.answer("📤 Sending file privately...")
-
-    try:
-        await client.copy_message(
+        await query.answer()
+        await app.copy_message(
             chat_id=query.from_user.id,
             from_chat_id=DB_CHANNEL,
             message_id=msg_id
         )
+
     except Exception as e:
-        await query.message.reply_text(f"❌ Failed to send file.\nError: {e}")
+        await query.message.reply_text(f"Error: {e}")
 
+# ----------- START COMMAND --------------
+@app.on_message(filters.command("start"))
+async def start(_, msg):
+    await msg.reply_text("🤖 File Search Bot Ready!\nUse /search <query> to find files.")
 
-# ===========================
-# Ignore non-functional buttons
-# ===========================
-@bot.on_callback_query(filters.regex("^noop"))
-async def ignore(_, query):
-    await query.answer("Navigation placeholder", show_alert=False)
-
-
-print("🤖 File Search Bot Started...")
-bot.run()
+print("✅ File Search Bot Started...")
+app.run()
