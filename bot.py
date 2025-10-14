@@ -9,26 +9,21 @@ import pyrogram.utils
 
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
-
-API_ID =  24435985              # your API ID
+# ───────────── CONFIG ─────────────
+API_ID = 24435985
 API_HASH = "0fec896446625478537e43906a4829f8"
 BOT_TOKEN = "7758738938:AAFfwe6FlwIU22cwDdzhqWqlLSeJo9V1p_Q"
-DATABASE_CHANNEL = -1003094784222  # your database channel ID
+DATABASE_CHANNEL = -1003094784222
 
 ADMINS = [6299192020]
-
-
 INDEX_FILE = "index.json"
 BOT_USERNAME = "Ghjjjoooo_bot"  # without @
-
-
-
 
 # ───────────── INIT ─────────────
 app = Client("searchbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 lock = asyncio.Lock()
 
-# Load index cache
+# Load cache
 if os.path.exists(INDEX_FILE):
     with open(INDEX_FILE, "r") as f:
         FILE_INDEX = json.load(f)
@@ -69,13 +64,14 @@ async def index_files(bot, message):
             except Exception:
                 continue
 
-            media = m.document or m.video or m.audio
-            if not media:
+            if not (m.document or m.video or m.audio):
                 continue
 
-            caption = m.caption or "Untitled File"
-            size = getattr(media, "file_size", 0)
-            new_index.append({"title": caption, "id": m.id, "size": size})
+            media = m.document or m.video or m.audio
+            caption = m.caption or media.file_name or "Untitled File"
+            size = round(media.file_size / 1048576, 2)
+
+            new_index.append({"title": f"[{size} MB] {caption}", "id": m.id})
             total_files += 1
 
             if total_files % 25 == 0:
@@ -101,128 +97,104 @@ async def search_files(bot, message):
     if not results:
         return await message.reply("❌ No results found.", quote=True)
 
-    await send_results_page(bot, message.chat.id, results, query, 0, message.from_user.id)
+    sent_msg = await send_results_page(bot, message.chat.id, results, query, 0, message.from_user.id)
+
+    # Auto delete after 5 minutes
+    await asyncio.sleep(300)
+    try:
+        await sent_msg.delete()
+    except:
+        pass
 
 
 # ───────────── PAGINATION DISPLAY ─────────────
-async def send_results_page(bot, chat_id, results, query_text, page, user_id, quality=None):
+async def send_results_page(bot, chat_id, results, query, page, user_id, quality_filter=None):
     PER_PAGE = 7
+
+    # Apply quality filter if selected
+    if quality_filter:
+        results = [f for f in results if quality_filter.lower() in f["title"].lower()]
+
     start = page * PER_PAGE
     end = start + PER_PAGE
+    current_results = results[start:end]
 
-    # Filter results by quality if selected
-    filtered_results = results
-    if quality:
-        filtered_results = [f for f in results if quality in f["title"].lower()]
+    if not current_results:
+        return await bot.send_message(chat_id, f"❌ No {quality_filter or ''} results found for **{query}**.")
 
-    current_results = filtered_results[start:end]
-
+    # File buttons
     buttons = [
-        [InlineKeyboardButton(
-            text=f"{f['title'][:40]} ({round(f['size']/1024/1024,1)} MB)" if f.get("size") else f['title'][:45],
-            callback_data=f"get|{f['id']}|{user_id}"
-        )] for f in current_results
+        [InlineKeyboardButton(text=f["title"][:60], callback_data=f"get_{f['id']}_{user_id}")]
+        for f in current_results
     ]
 
-    # Navigation buttons
+    # Send All button
+    buttons.insert(0, [InlineKeyboardButton("📤 Send All", callback_data=f"sendall_{page}_{query}_{user_id}_{quality_filter or 'all'}")])
+
+    # Quality Filter buttons
+    quality_row = [
+        InlineKeyboardButton("480p", callback_data=f"filter_480p_{query}_{page}_{user_id}"),
+        InlineKeyboardButton("720p", callback_data=f"filter_720p_{query}_{page}_{user_id}"),
+        InlineKeyboardButton("1080p", callback_data=f"filter_1080p_{query}_{page}_{user_id}")
+    ]
+    buttons.insert(1, quality_row)
+
+    # Pagination buttons
     nav_buttons = []
     if start > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data=f"page|{page-1}|{query_text}|{user_id}"))
-    if end < len(filtered_results):
-        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"page|{page+1}|{query_text}|{user_id}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data=f"page_{page-1}_{query}_{user_id}_{quality_filter or 'all'}"))
+    if end < len(results):
+        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"page_{page+1}_{query}_{user_id}_{quality_filter or 'all'}"))
     if nav_buttons:
         buttons.append(nav_buttons)
 
-    # Quality buttons (always at bottom)
-    quality_buttons = [
-        InlineKeyboardButton("480p", callback_data=f"filter|480p|{query_text}|{page}|{user_id}"),
-        InlineKeyboardButton("720p", callback_data=f"filter|720p|{query_text}|{page}|{user_id}"),
-        InlineKeyboardButton("1080p", callback_data=f"filter|1080p|{query_text}|{page}|{user_id}")
-    ]
-    buttons.append(quality_buttons)
-
-    # Send All button
-    buttons.append([InlineKeyboardButton("🎬 Send All", callback_data=f"sendall|{query_text}|{user_id}")])
-
-    text = f"🔍 Results for **{query_text}** (Page {page+1}/{(len(filtered_results)-1)//PER_PAGE + 1})"
-    if quality:
-        text += f"\n🎞 Filter: **{quality.upper()}**"
-
-    await bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=(await bot.send_message(chat_id, "⏳ Loading...")).id,
-        text=text,
+    msg = await bot.send_message(
+        chat_id,
+        f"🔍 Results for **{query}** ({quality_filter or 'All Qualities'}) (Page {page+1}/{(len(results)-1)//PER_PAGE + 1})",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+    return msg
 
 
-# ───────────── CALLBACKS ─────────────
-@app.on_callback_query(filters.regex(r"^page\|"))
+# ───────────── PAGINATION CALLBACK ─────────────
+@app.on_callback_query(filters.regex(r"^page_"))
 async def page_navigation(bot, query: CallbackQuery):
-    _, page, query_text, user_id = query.data.split("|", 3)
+    _, page, query_text, user_id, quality_filter = query.data.split("_", 4)
 
     if str(query.from_user.id) != str(user_id):
         return await query.answer("⚠️ Not your search results!", show_alert=True)
 
     results = [f for f in FILE_INDEX if query_text in f["title"].lower()]
-    await send_results_page(bot, query.message.chat.id, results, query_text, int(page), user_id)
+    await query.message.delete()
+    await send_results_page(bot, query.message.chat.id, results, query_text, int(page), user_id, None if quality_filter == "all" else quality_filter)
 
 
-@app.on_callback_query(filters.regex(r"^filter\|"))
+# ───────────── QUALITY FILTER CALLBACK ─────────────
+@app.on_callback_query(filters.regex(r"^filter_"))
 async def filter_quality(bot, query: CallbackQuery):
-    _, quality, query_text, page, user_id = query.data.split("|", 4)
+    _, quality, search_text, page, user_id = query.data.split("_", 4)
 
     if str(query.from_user.id) != str(user_id):
         return await query.answer("⚠️ Not your search results!", show_alert=True)
 
-    results = [f for f in FILE_INDEX if query_text in f["title"].lower()]
-    await send_results_page(bot, query.message.chat.id, results, query_text, int(page), user_id, quality)
+    results = [f for f in FILE_INDEX if search_text in f["title"].lower()]
+    await query.message.delete()
+    await send_results_page(bot, query.message.chat.id, results, search_text, int(page), user_id, quality)
 
 
-@app.on_callback_query(filters.regex("^sendall\|"))
-async def send_all_results(bot, query: CallbackQuery):
-    _, query_text, user_id = query.data.split("|", 2)
-
-    if str(query.from_user.id) != str(user_id):
-        return await query.answer("⚠️ Not your search!", show_alert=True)
-
-    results = [f for f in FILE_INDEX if query_text in f["title"].lower()]
-
-    try:
-        await bot.send_chat_action(query.from_user.id, "upload_document")
-    except Forbidden:
-        return await query.answer(
-            f"📩 Please start the bot first!\n👉 t.me/{BOT_USERNAME}",
-            show_alert=True
-        )
-
-    await query.answer("📤 Sending all files...")
-    for f in results[:20]:  # safety limit
-        try:
-            await bot.copy_message(
-                chat_id=query.from_user.id,
-                from_chat_id=DATABASE_CHANNEL,
-                message_id=f["id"]
-            )
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-
-
-@app.on_callback_query(filters.regex(r"^get\|"))
+# ───────────── SEND FILE ─────────────
+@app.on_callback_query(filters.regex(r"^get_"))
 async def send_file(bot, query: CallbackQuery):
-    _, msg_id, user_id = query.data.split("|", 2)
+    _, msg_id, user_id = query.data.split("_")
 
     if str(query.from_user.id) != str(user_id):
-        return await query.answer("⚠️ Not your search result.", show_alert=True)
+        return await query.answer("⚠️ Not your search result. Use /search yourself.", show_alert=True)
 
     try:
         try:
             await bot.send_chat_action(query.from_user.id, "upload_document")
         except Forbidden:
-            return await query.answer(
-                f"📩 Please start the bot first!\n👉 t.me/{BOT_USERNAME}",
-                show_alert=True
-            )
+            return await query.answer(f"📩 Please start the bot first!\n👉 t.me/{BOT_USERNAME}", show_alert=True)
 
         await bot.copy_message(
             chat_id=query.from_user.id,
@@ -230,6 +202,37 @@ async def send_file(bot, query: CallbackQuery):
             message_id=int(msg_id)
         )
         await query.answer("📤 Sent to your DM!", show_alert=False)
+    except Exception as e:
+        await query.answer(f"❌ Error: {e}", show_alert=True)
+
+
+# ───────────── SEND ALL FILES ON PAGE ─────────────
+@app.on_callback_query(filters.regex(r"^sendall_"))
+async def send_all(bot, query: CallbackQuery):
+    _, page, query_text, user_id, quality_filter = query.data.split("_", 4)
+
+    if str(query.from_user.id) != str(user_id):
+        return await query.answer("⚠️ Not your search results!", show_alert=True)
+
+    results = [f for f in FILE_INDEX if query_text in f["title"].lower()]
+    if quality_filter != "all":
+        results = [f for f in results if quality_filter.lower() in f["title"].lower()]
+
+    PER_PAGE = 7
+    start = int(page) * PER_PAGE
+    end = start + PER_PAGE
+    selected = results[start:end]
+
+    try:
+        for f in selected:
+            await bot.copy_message(
+                chat_id=query.from_user.id,
+                from_chat_id=DATABASE_CHANNEL,
+                message_id=f["id"]
+            )
+        await query.answer(f"📦 Sent all {len(selected)} {quality_filter} files to your DM!", show_alert=True)
+    except Forbidden:
+        await query.answer(f"📩 Please start the bot first!\n👉 t.me/{BOT_USERNAME}", show_alert=True)
     except Exception as e:
         await query.answer(f"❌ Error: {e}", show_alert=True)
 
