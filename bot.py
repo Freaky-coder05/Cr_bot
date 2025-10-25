@@ -10,7 +10,7 @@ API_ID = int(os.environ.get("API_ID",  24435985))  # replace or use env vars
 API_HASH = os.environ.get("API_HASH", "0fec896446625478537e43906a4829f8")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:AAGwhb8vXtHw9INX8SzCr82PKYtjQJHE-3c")
 
-CLI_PATH = "/content/animepahe-cli/build/animepahe-cli-beta"
+CLI_PATH = "/content/animepahe-cli/build"
 DOWNLOAD_DIR = "/content/animepahe-cli"
 
 # ----------------------------------------
@@ -46,13 +46,13 @@ async def anime(_, msg: Message):
         episodes = episodes_match.group(1) if episodes_match else "all"
 
         # Build the full command
-        cmd = f'"{CLI_PATH}" {cmd_args}'
+        cmd = f'"animepahe-cli-beta" {cmd_args}'
         await msg.reply_text(f"<blockquote>⚙️ Running command:\n`{cmd}`</blockquote>")
         await msg.reply_text(f"🔁 Starting download for episodes `{episodes}`...\n📺 {link}")
 
         # Run the download command
         process = subprocess.run(
-            cmd, shell=True, cwd=DOWNLOAD_DIR, capture_output=True, text=True
+            cmd, shell=True, cwd=CLI_PATH, capture_output=True, text=True
         )
 
         # Show errors if any
