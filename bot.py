@@ -6,19 +6,17 @@ from pyrogram.types import Message
 import re
 
 # ---------------- CONFIG ----------------
-API_ID = int(os.environ.get("API_ID",  24435985))  # replace or use env vars
+API_ID = int(os.environ.get("API_ID", 24435985))
 API_HASH = os.environ.get("API_HASH", "0fec896446625478537e43906a4829f8")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:AAGwhb8vXtHw9INX8SzCr82PKYtjQJHE-3c")
 
-CLI_PATH = "/content/animepahe-cli/animepahe-cli/animepahe-cli/build"
-DOWNLOAD_DIR = "/content/animepahe-cli/animepahe-cli/animepahe-cli/videos"
-
-# ----------------------------------------
-
-bot = Client("animepahe_cli_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+CLI_PATH = "/content/animepahe-cli/build"
+DOWNLOAD_DIR = "/content/animepahe-cli/videos"
 
 # Ensure download folder exists
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+bot = Client("animepahe_cli_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 @bot.on_message(filters.command("start"))
 async def start(_, msg: Message):
@@ -45,8 +43,8 @@ async def anime(_, msg: Message):
         link = link_match.group(1) if link_match else "N/A"
         episodes = episodes_match.group(1) if episodes_match else "all"
 
-        # Build the full command
-        cmd = f'"animepahe-cli-beta" {cmd_args}'
+        # Build the full command with absolute path
+        cmd = f'"{CLI_PATH}/animepahe-cli-beta" {cmd_args}'
         await msg.reply_text(f"<blockquote>⚙️ Running command:\n`{cmd}`</blockquote>")
         await msg.reply_text(f"🔁 Starting download for episodes `{episodes}`...\n📺 {link}")
 
