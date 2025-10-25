@@ -11,7 +11,7 @@ API_HASH = os.environ.get("API_HASH", "0fec896446625478537e43906a4829f8")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:AAGwhb8vXtHw9INX8SzCr82PKYtjQJHE-3c")
 
 CLI_PATH = "/content/animepahe-cli/build"
-DOWNLOAD_DIR = "/content/animepahe-cli"
+DOWNLOAD_DIR = "/content/animepahe-cli/videos"
 
 # ----------------------------------------
 
