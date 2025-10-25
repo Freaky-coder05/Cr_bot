@@ -3,6 +3,7 @@ import subprocess
 import glob
 from pyrogram import Client, filters
 from pyrogram.types import Message
+import re
 
 # ---------------- CONFIG ----------------
 API_ID = int(os.environ.get("API_ID",  24435985))  # replace or use env vars
@@ -37,12 +38,18 @@ async def anime(_, msg: Message):
             await msg.reply_text("❌ Please provide arguments.\nExample:\n`/anime -l <link> -e 1-3`")
             return
 
+        # Extract link and episodes from the command (optional, for display)
+        link_match = re.search(r"(https?://\S+)", cmd_args)
+        episodes_match = re.search(r"(\d+[-\d,]*)", cmd_args)
+
+        link = link_match.group(1) if link_match else "N/A"
+        episodes = episodes_match.group(1) if episodes_match else "all"
+
         # Build the full command
         cmd = f'"{CLI_PATH}" {cmd_args}'
         await msg.reply_text(f"<blockquote>⚙️ Running command:\n`{cmd}`</blockquote>")
         await msg.reply_text(f"🔁 Starting download for episodes `{episodes}`...\n📺 {link}")
 
-        
         # Run the download command
         process = subprocess.run(
             cmd, shell=True, cwd=DOWNLOAD_DIR, capture_output=True, text=True
@@ -55,8 +62,6 @@ async def anime(_, msg: Message):
 
         # Find downloaded files
         files = sorted(glob.glob(os.path.join(DOWNLOAD_DIR, "**/*.mp4"), recursive=True))
-        
-        
 
         if not files:
             await msg.reply_text("⚠️ No video files found after download.")
