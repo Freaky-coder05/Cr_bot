@@ -39,7 +39,7 @@ async def anime(_, msg: Message):
 
         # Build the full command
         cmd = f'"{CLI_PATH}" {cmd_args}'
-        await msg.reply_text(f"⚙️ Running command:\n`{command}`")
+        await msg.reply_text(f"<blockquote>⚙️ Running command:\n`{cmd}`</blockquote>")
         await msg.reply_text(f"🔁 Starting download for episodes `{episodes}`...\n📺 {link}")
 
         
