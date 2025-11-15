@@ -10,71 +10,54 @@ API_ID = int(os.environ.get("API_ID", 24435985))
 API_HASH = os.environ.get("API_HASH", "0fec896446625478537e43906a4829f8")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:AAGwhb8vXtHw9INX8SzCr82PKYtjQJHE-3c")
 
-CLI_PATH = "/content/animepahe-cli/build"
-DOWNLOAD_DIR = "/content/animepahe-cli/videos"
 
-# Ensure download folder exists
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+bot = Client("urlbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-bot = Client("animepahe_cli_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@bot.on_message(filters.command("start"))
-async def start(_, msg: Message):
-    await msg.reply_text(
-        "🎬 **AnimePahe CLI Bot** is ready!\n\n"
-        "Use this format:\n"
-        "`/anime <anime_link> <episodes>`\n\n"
-        "Example:\n"
-        "`/anime https://animepahe.si/anime/c042ba75-c528-d9d6-1985-64be9734788f 1-3`"
-    )
+import aiohttp
 
-@bot.on_message(filters.command("anime"))
-async def anime(_, msg: Message):
-    try:
-        cmd_args = msg.text.replace("/anime", "").strip()
-        if not cmd_args:
-            await msg.reply_text("❌ Please provide arguments.\nExample:\n`/anime -l <link> -e 1-3`")
-            return
+async def get_short_link(user, link):
+    api_key = "d5df2a373f3d68a2d3c86848dd6aab838e5309a0"
+    base_site = "linkshortify.com"
 
-        # Extract link and episodes from the command (optional, for display)
-        link_match = re.search(r"(https?://\S+)", cmd_args)
-        episodes_match = re.search(r"(\d+[-\d,]*)", cmd_args)
+    api_url = f"https://{base_site}/api?api={api_key}&url={link}"
 
-        link = link_match.group(1) if link_match else "N/A"
-        episodes = episodes_match.group(1) if episodes_match else "all"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(api_url) as resp:
+            data = await resp.json()
 
-        # Build the full command with absolute path
-        cmd = f'"{CLI_PATH}/animepahe-cli-beta" {cmd_args}'
-        await msg.reply_text(f"<blockquote>⚙️ Running command:\n`{cmd}`</blockquote>")
-        await msg.reply_text(f"🔁 Starting download for episodes `{episodes}`...\n📺 {link}")
+    if data.get("status") == "success":
+        return data["shortenedUrl"]
 
-        # Run the download command
-        process = subprocess.run(
-            cmd, shell=True, cwd=CLI_PATH, capture_output=True, text=True
+    return None
+    
+@bot.on_message(filters.private & filters.text)
+async def auto_shortener(bot, message):
+    text = message.text
+
+    # Regex for detecting URLs
+    url_pattern = r'(https?://[^\s]+)'
+    found = re.findall(url_pattern, text)
+
+    if not found:
+        return  # No link, ignore message
+
+    url = found[0]  # Only first URL is shortened
+
+   
+
+    user_id = message.from_user.id
+    
+
+    
+    short_link = await get_short_link(user_id, url)
+
+    if short_link:
+        await message.reply(
+            f"<b>⭕ Here is your short link:\n\n🖇️ {short_link}</b>"
         )
+    else:
+        await message.reply("❌ Unable to shorten the link.")
 
-        # Show errors if any
-        if process.returncode != 0:
-            await msg.reply_text(f"⚠️ Download failed:\n```\n{process.stderr}\n```")
-            return
-
-        # Find downloaded files
-        files = sorted(glob.glob(os.path.join(DOWNLOAD_DIR, "**/*.mp4"), recursive=True))
-
-        if not files:
-            await msg.reply_text("⚠️ No video files found after download.")
-            return
-
-        await msg.reply_text(f"✅ Download complete! Uploading {len(files)} file(s)...")
-
-        for file in files:
-            filename = os.path.basename(file)
-            await msg.reply_document(file, caption=f"🎥 {filename}")
-            os.remove(file)
-
-        await msg.reply_text("🎉 All episodes uploaded successfully!")
-
-    except Exception as e:
-        await msg.reply_text(f"❌ Error: `{e}`")
 
 bot.run()
