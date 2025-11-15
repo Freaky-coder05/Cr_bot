@@ -8,7 +8,7 @@ import re
 # ---------------- CONFIG ----------------
 API_ID = int(os.environ.get("API_ID", 24435985))
 API_HASH = os.environ.get("API_HASH", "0fec896446625478537e43906a4829f8")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:AAGwhb8vXtHw9INX8SzCr82PKYtjQJHE-3c")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "7758738938:-3c")
 
 
 bot = Client("urlbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -17,8 +17,8 @@ bot = Client("urlbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 import aiohttp
 
 async def get_short_link(user, link):
-    api_key = "d5df2a373f3d68a2d3c86848dd6aab838e5309a0"
-    base_site = "linkshortify.com"
+    api_key = ""
+    base_site = ""
 
     api_url = f"https://{base_site}/api?api={api_key}&url={link}"
 
