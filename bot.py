@@ -82,7 +82,7 @@ async def start(_, msg):
     )
 
 
-@app.on_message(filters.text & ~filters.command())
+@app.on_message(filters.text & ~filters.command("li"))
 async def receive_series_url(_, msg):
     anime_id = extract_anime_id(msg.text.strip())
     if not anime_id:
